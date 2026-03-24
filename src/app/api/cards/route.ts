@@ -86,11 +86,23 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Delete all cards
-export async function DELETE() {
+// DELETE - Delete all cards or single card by ID
+export async function DELETE(request: NextRequest) {
   try {
-    await prisma.ankiCard.deleteMany();
-    return NextResponse.json({ success: true, message: "All cards deleted" });
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (id) {
+      // Delete single card
+      await prisma.ankiCard.delete({
+        where: { id },
+      });
+      return NextResponse.json({ success: true, message: "Card deleted" });
+    } else {
+      // Delete all cards
+      await prisma.ankiCard.deleteMany();
+      return NextResponse.json({ success: true, message: "All cards deleted" });
+    }
   } catch (error) {
     console.error("Error deleting cards:", error);
     return NextResponse.json({ error: "Failed to delete cards" }, { status: 500 });
