@@ -26,6 +26,7 @@ const pg = new EmbeddedPostgres({
 });
 
 const dbUrl = `postgresql://postgres:postgres@127.0.0.1:${PORT}/ankiicu`;
+const dbEnv = { ...process.env, DATABASE_URL: dbUrl, DIRECT_URL: dbUrl };
 
 function versionFile() {
   return path.join(dataDir, "PG_VERSION");
@@ -55,7 +56,7 @@ function run(cmd, args) {
     const child = spawn(cmd, args, {
       stdio: "inherit",
       shell: process.platform === "win32",
-      env: { ...process.env, DATABASE_URL: dbUrl },
+      env: dbEnv,
       cwd: root,
     });
     child.on("exit", (code) =>
@@ -72,7 +73,7 @@ async function main() {
   const next = spawn("npx", ["next", "dev", "-p", "3000"], {
     stdio: "inherit",
     shell: process.platform === "win32",
-    env: { ...process.env, DATABASE_URL: dbUrl },
+    env: dbEnv,
     cwd: root,
   });
 
