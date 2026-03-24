@@ -2,7 +2,9 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Vercel builds on Linux (AWS); native binaries from dev machines are not enough.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

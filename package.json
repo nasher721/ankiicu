@@ -2,14 +2,17 @@
   "name": "nextjs_tailwind_shadcn_ts",
   "version": "0.2.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "next dev -p 3000",
     "dev:local": "node scripts/dev-local.mjs",
     "db:up": "docker compose up -d",
     "db:prisma-create": "npx create-db@latest",
-    "build": "prisma generate && next build",
-    "build:standalone": "prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "build": "prisma generate && next build --webpack",
+    "build:standalone": "prisma generate && next build --webpack && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push",
@@ -81,10 +84,11 @@
     "vaul": "^1.1.2",
     "z-ai-web-dev-sdk": "^0.0.17",
     "zod": "^4.0.2",
-    "zustand": "^5.0.6"
+    "zustand": "^5.0.6",
+    "@prisma/client": "^6.19.2",
+    "prisma": "^6.19.2"
   },
   "devDependencies": {
-    "@prisma/client": "^6.19.2",
     "@tailwindcss/postcss": "^4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -92,7 +96,6 @@
     "embedded-postgres": "^18.3.0-beta.16",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
-    "prisma": "^6.19.2",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
