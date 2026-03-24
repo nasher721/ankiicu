@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SourceFile {
+  id           String   @id @default(cuid())
+  filename     String
+  fileType     String   // pdf, md, txt
+  content      String   // The full text content
+  chapters     String   // JSON array of detected chapters
+  totalQuestions Int    @default(0)
+  processed    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AnkiCard {
+  id              String   @id @default(cuid())
+  cardId          String   @unique // e.g., ch1_q1
+  chapter         String
+  chapterId       Int      @default(0)
+  sourceQNumber   Int
+  difficulty      String   // easy, medium, hard
+  tags            String   // JSON array as string
+  ankiType        String   // cloze, basic, cloze_and_basic
+  
+  // Cloze fields
+  clozeText       String?  // Full vignette with answer choices, answer hidden at bottom
+  
+  // Basic fields
+  front           String?  // Question side
+  back            String?  // Answer side
+  
+  // Extra fields
+  explanation     String?
+  mnemonic        String?
+  clinicalPearl   String?
+  references      String?  // JSON array as string
+  pitfalls        String?
+  
+  // Metadata
+  imageDependent  Boolean  @default(false)
+  seeAlso         String?  // JSON array as string
+  rawJson         String?  // Original JSON for export
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([chapter])
+  @@index([chapterId])
+  @@index([difficulty])
+  @@index([ankiType])
+}
+
+model GenerationProgress {
+  id                    String   @id @default(cuid()) // singleton - always use "main"
+  currentChapterId      Int      @default(1)
+  currentQuestionNumber Int      @default(0)
+  totalCardsGenerated   Int      @default(0)
+  totalQuestionsTarget  Int      @default(0)
+  status                String   @default("idle") // idle, running, paused, completed
+  batchSize             Int      @default(5)
+  cardType              String   @default("cloze")
+  extras                String   @default("[]")
+  lastError             String?
+  sourceFileId          String?
+  startedAt             DateTime?
+  lastRunAt             DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model GenerationJob {
+  id              String   @id @default(cuid())
+  status          String   @default("pending") // pending, processing, completed, failed, paused
+  chapters        String   // JSON array of chapter IDs
+  cardType        String   // cloze, basic, both
+  extras          String   // JSON array of extra field IDs
+  batchSize       Int      @default(25)
+  cardsGenerated  Int      @default(0)
+  cardsTarget     Int      @default(0)
+  currentBatch    Int      @default(0)
+  totalBatches    Int      @default(0)
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  completedAt     DateTime?
+}
