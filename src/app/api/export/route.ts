@@ -1,24 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
+import { clampInt, MAX_LIST_LIMIT } from "@/lib/api-limits";
+import { serverErrorResponse } from "@/lib/api-errors";
+import { safeJsonArray } from "@/lib/json-safe";
 
 // GET - Export cards as JSON or CSV
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") || "json";
-    const cardType = searchParams.get("cardType"); // cloze, basic, or undefined for all
+    const cardType = searchParams.get("cardType");
+
+    // Default to max cap so exports include the full deck (up to MAX_LIST_LIMIT rows).
+    const limit = clampInt(
+      searchParams.get("limit"),
+      1,
+      MAX_LIST_LIMIT,
+      MAX_LIST_LIMIT,
+    );
+    const offset = Math.max(0, clampInt(searchParams.get("offset"), 0, MAX_LIST_LIMIT * 100, 0));
 
     const whereClause = cardType ? { ankiType: cardType } : {};
-    
-    const cards = await prisma.ankiCard.findMany({
+
+    const cards = await db.ankiCard.findMany({
       where: whereClause,
       orderBy: { createdAt: "asc" },
+      take: limit,
+      skip: offset,
     });
 
     if (format === "csv") {
-      // Generate CSV for Anki import
       const headers = [
         "id",
         "chapter",
@@ -37,7 +48,6 @@ export async function GET(request: NextRequest) {
 
       const escapeCSV = (str: string | null) => {
         if (!str) return "";
-        // Escape quotes and wrap in quotes if contains comma, quote, or newline
         if (str.includes(",") || str.includes('"') || str.includes("\n")) {
           return `"${str.replace(/"/g, '""')}"`;
         }
@@ -46,21 +56,23 @@ export async function GET(request: NextRequest) {
 
       const csvRows = [
         headers.join(","),
-        ...cards.map(card => [
-          escapeCSV(card.cardId),
-          escapeCSV(card.chapter),
-          escapeCSV(card.difficulty),
-          escapeCSV(card.tags),
-          escapeCSV(card.ankiType),
-          escapeCSV(card.clozeText),
-          escapeCSV(card.front),
-          escapeCSV(card.back),
-          escapeCSV(card.explanation),
-          escapeCSV(card.mnemonic),
-          escapeCSV(card.clinicalPearl),
-          escapeCSV(card.references),
-          escapeCSV(card.pitfalls),
-        ].join(",")),
+        ...cards.map((card) =>
+          [
+            escapeCSV(card.cardId),
+            escapeCSV(card.chapter),
+            escapeCSV(card.difficulty),
+            escapeCSV(card.tags),
+            escapeCSV(card.ankiType),
+            escapeCSV(card.clozeText),
+            escapeCSV(card.front),
+            escapeCSV(card.back),
+            escapeCSV(card.explanation),
+            escapeCSV(card.mnemonic),
+            escapeCSV(card.clinicalPearl),
+            escapeCSV(card.references),
+            escapeCSV(card.pitfalls),
+          ].join(","),
+        ),
       ];
 
       return new NextResponse(csvRows.join("\n"), {
@@ -71,8 +83,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Default: JSON format
-    const jsonCards = cards.map(card => {
+    const jsonCards = cards.map((card) => {
       try {
         return JSON.parse(card.rawJson || "{}");
       } catch {
@@ -81,7 +92,7 @@ export async function GET(request: NextRequest) {
           chapter: card.chapter,
           source_q_number: card.sourceQNumber,
           difficulty: card.difficulty,
-          tags: JSON.parse(card.tags || "[]"),
+          tags: safeJsonArray(card.tags, []),
           anki_type: card.ankiType,
           cloze_text: card.clozeText,
           front: card.front,
@@ -89,10 +100,10 @@ export async function GET(request: NextRequest) {
           explanation: card.explanation,
           mnemonic: card.mnemonic,
           clinical_pearl: card.clinicalPearl,
-          references: JSON.parse(card.references || "[]"),
+          references: safeJsonArray(card.references, []),
           pitfalls: card.pitfalls,
           image_dependent: card.imageDependent,
-          see_also: JSON.parse(card.seeAlso || "[]"),
+          see_also: safeJsonArray(card.seeAlso, []),
         };
       }
     });
@@ -104,7 +115,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error exporting cards:", error);
-    return NextResponse.json({ error: "Failed to export cards" }, { status: 500 });
+    return serverErrorResponse("Failed to export cards", error);
   }
 }

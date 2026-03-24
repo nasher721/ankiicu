@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { cardsApiUrl } from "@/lib/api-config";
 
 interface DashboardStats {
   totalCards: number;
@@ -57,7 +58,7 @@ export default function DashboardPage() {
   const fetchStats = useCallback(async () => {
     try {
       const [cardsRes, progressRes] = await Promise.all([
-        fetch("/api/cards"),
+        fetch(cardsApiUrl),
         fetch("/api/progress"),
       ]);
       
@@ -66,6 +67,8 @@ export default function DashboardPage() {
 
       // Process stats
       const cards = cardsData.cards || [];
+      const totalCardsCount =
+        typeof cardsData.total === "number" ? cardsData.total : cards.length;
       const byChapter: Record<string, number> = {};
       const byDifficulty: Record<string, number> = {};
       
@@ -75,7 +78,7 @@ export default function DashboardPage() {
       });
 
       setStats({
-        totalCards: cards.length,
+        totalCards: totalCardsCount,
         cardsByChapter: Object.entries(byChapter)
           .map(([chapter, count]) => ({ chapter, count }))
           .sort((a, b) => b.count - a.count)

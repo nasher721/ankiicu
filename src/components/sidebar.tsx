@@ -16,7 +16,8 @@ import {
   Brain,
   ChevronLeft,
   ChevronRight,
-  Settings
+  Settings,
+  LogIn,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -143,14 +144,24 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="border-t p-4">
-        <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between")}>
-          {!collapsed && (
-            <Button variant="ghost" size="icon" className="h-9 w-9" asChild>
+        <div
+          className={cn(
+            "flex items-center gap-1",
+            collapsed ? "flex-col justify-center" : "justify-between",
+          )}
+        >
+          <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
+            <Button variant="ghost" size="icon" className="h-9 w-9" asChild title="Sign in">
+              <Link href="/login">
+                <LogIn className="h-5 w-5" />
+              </Link>
+            </Button>
+            <Button variant="ghost" size="icon" className="h-9 w-9" asChild title="Settings">
               <Link href="/settings">
                 <Settings className="h-5 w-5" />
               </Link>
             </Button>
-          )}
+          </div>
           <ThemeToggle />
         </div>
       </div>

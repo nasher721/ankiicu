@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { cardsApiUrl } from "@/lib/api-config";
 import { 
   Search, 
   Filter, 
@@ -83,7 +84,7 @@ export default function CardsPage() {
   // Fetch cards
   const fetchCards = useCallback(async () => {
     try {
-      const res = await fetch("/api/cards");
+      const res = await fetch(cardsApiUrl);
       const data = await res.json();
       setCards(data.cards || []);
     } catch (error) {

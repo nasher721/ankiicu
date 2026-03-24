@@ -23,6 +23,7 @@ import {
   ArrowRight
 } from "lucide-react";
 import Link from "next/link";
+import { cardsApiUrl } from "@/lib/api-config";
 
 interface ExportPreset {
   id: string;
@@ -77,7 +78,7 @@ export default function ExportPage() {
 
   const fetchCards = useCallback(async () => {
     try {
-      const res = await fetch("/api/cards");
+      const res = await fetch(cardsApiUrl);
       const data = await res.json();
       setCards(data.cards || []);
     } catch (error) {

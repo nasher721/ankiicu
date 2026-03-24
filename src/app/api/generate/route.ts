@@ -1,81 +1,94 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { db } from "@/lib/db";
+import {
+  MAX_BATCH_SIZE,
+  MAX_QUESTION_COUNT,
+  MIN_BATCH_SIZE,
+  MIN_QUESTION_COUNT,
+  clampInt,
+} from "@/lib/api-limits";
+import { serverErrorResponse } from "@/lib/api-errors";
+import { safeJsonArray } from "@/lib/json-safe";
 import ZAI from "z-ai-web-dev-sdk";
-
-const prisma = new PrismaClient();
 
 // POST - Generate cards (single batch or continue sequence)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { 
-      mode = "single", // single, continue, batch
-      chapterIds, 
-      cardType: overrideCardType, 
-      extras: overrideExtras, 
-      questionCount = 5,
+    const {
+      mode = "single",
+      chapterIds,
+      cardType: overrideCardType,
+      extras: overrideExtras,
+      questionCount: rawQuestionCount = 5,
       updateProgress = true,
     } = body;
 
-    // Get current progress state
-    let progress = await prisma.generationProgress.findUnique({ where: { id: "main" } });
-    const sourceFile = await prisma.sourceFile.findFirst({ orderBy: { createdAt: "desc" } });
+    let progress = await db.generationProgress.findUnique({ where: { id: "main" } });
+    const sourceFile = await db.sourceFile.findFirst({ orderBy: { createdAt: "desc" } });
 
-    // Determine settings from progress or overrides
     const cardType = overrideCardType || progress?.cardType || "cloze";
-    const extras = overrideExtras || (progress?.extras ? JSON.parse(progress.extras) : ["explanation"]);
-    const batchSize = progress?.batchSize || 5;
+    const extras =
+      overrideExtras ?? safeJsonArray(progress?.extras, ["explanation"]);
+    const batchSize = clampInt(
+      progress?.batchSize ?? 5,
+      MIN_BATCH_SIZE,
+      MAX_BATCH_SIZE,
+      5,
+    );
 
-    // Get content source
+    const targetQuestionCount = clampInt(
+      rawQuestionCount,
+      MIN_QUESTION_COUNT,
+      MAX_QUESTION_COUNT,
+      5,
+    );
+
     let content = "";
-    let chapters: Array<{ id: number; label: string; startIdx: number; endIdx: number; questionCount: number }> = [];
-    
+    let chapters: Array<{
+      id: number;
+      label: string;
+      startIdx: number;
+      endIdx: number;
+      questionCount: number;
+    }> = [];
+
     if (sourceFile?.content) {
       content = sourceFile.content;
-      chapters = JSON.parse(sourceFile.chapters || "[]");
+      chapters = safeJsonArray(sourceFile.chapters, []);
     } else {
-      // Fallback to uploaded PDF file
-      const fs = await import("fs");
-      const path = await import("path");
-      const pdfPath = "/home/z/my-project/upload/Neurocritical Care Board Review_ Questions and Answers-Demos Medical (2018).pdf.md";
-      try {
-        content = fs.readFileSync(pdfPath, "utf-8");
-        chapters = extractChaptersFromContent(content);
-      } catch {
-        return NextResponse.json({ error: "No source file found. Please upload a file first." }, { status: 400 });
-      }
+      return NextResponse.json(
+        { error: "No source file found. Please upload a file first." },
+        { status: 400 },
+      );
     }
 
     if (!content) {
       return NextResponse.json({ error: "No content available" }, { status: 400 });
     }
 
-    // Determine which chapters/questions to process
     let targetChapters: number[] = [];
-    let targetQuestionCount = questionCount;
+    let effectiveQuestionCount = targetQuestionCount;
     let isSequential = false;
 
     if (mode === "continue" && progress) {
-      // Continue from where we left off
       targetChapters = [progress.currentChapterId];
-      targetQuestionCount = batchSize;
+      effectiveQuestionCount = batchSize;
       isSequential = true;
     } else if (mode === "batch" && progress) {
-      // Process next batch in sequence
       targetChapters = [progress.currentChapterId];
-      targetQuestionCount = batchSize;
+      effectiveQuestionCount = batchSize;
       isSequential = true;
     } else if (chapterIds && chapterIds.length > 0) {
-      // Process specified chapters
       targetChapters = chapterIds;
+      effectiveQuestionCount = targetQuestionCount;
     } else {
       return NextResponse.json({ error: "No chapters specified" }, { status: 400 });
     }
 
-    // Extract content for target chapters
     const chapterContents: string[] = [];
     for (const chId of targetChapters) {
-      const ch = chapters.find(c => c.id === chId);
+      const ch = chapters.find((c) => c.id === chId);
       if (ch) {
         const lines = content.split("\n");
         const chContent = lines.slice(ch.startIdx, Math.min(ch.endIdx, ch.startIdx + 500)).join("\n");
@@ -87,15 +100,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No chapter content found" }, { status: 400 });
     }
 
-    // Limit content size
     const maxContentLength = 35000;
     let combinedContent = chapterContents.join("\n\n");
     if (combinedContent.length > maxContentLength) {
       combinedContent = combinedContent.slice(0, maxContentLength) + "\n... [content truncated]";
     }
 
-    // Build prompt and call AI
-    const userPrompt = `Generate ${targetQuestionCount} Anki flashcards from the following Neurocritical Care Board Review content.
+    const userPrompt = `Generate ${effectiveQuestionCount} Anki flashcards from the following Neurocritical Care Board Review content.
 
 Focus on extracting questions and their answers. For each question:
 1. Extract the full clinical vignette
@@ -106,13 +117,12 @@ Focus on extracting questions and their answers. For each question:
 Content:
 ${combinedContent}
 
-Generate ${targetQuestionCount} cards now. Return ONLY valid JSON.`;
+Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
 
-    // Update progress to running
     if (updateProgress && isSequential) {
-      await prisma.generationProgress.update({
+      await db.generationProgress.update({
         where: { id: "main" },
-        data: { 
+        data: {
           status: "running",
           lastRunAt: new Date(),
           cardType,
@@ -121,32 +131,24 @@ Generate ${targetQuestionCount} cards now. Return ONLY valid JSON.`;
       });
     }
 
-    // Call AI
     const zai = await ZAI.create();
     const completion = await zai.chat.completions.create({
       model: "glm-5",
       messages: [
-        {
-          role: "system",
-          content: buildSystemPrompt(cardType, extras),
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
+        { role: "system", content: buildSystemPrompt(cardType, extras) },
+        { role: "user", content: userPrompt },
       ],
       temperature: 0.7,
       max_tokens: 8000,
     });
 
     const responseContent = completion.choices[0]?.message?.content;
-    
+
     if (!responseContent) {
       throw new Error("No response from AI");
     }
 
-    // Parse response
-    let cards;
+    let cards: unknown;
     try {
       let jsonStr = responseContent;
       const jsonMatch = responseContent.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -160,70 +162,80 @@ Generate ${targetQuestionCount} cards now. Return ONLY valid JSON.`;
     } catch {
       console.error("Failed to parse AI response");
       if (isSequential) {
-        await prisma.generationProgress.update({
+        await db.generationProgress.update({
           where: { id: "main" },
-          data: { 
+          data: {
             status: "paused",
             lastError: "Failed to parse AI response",
           },
         });
       }
-      return NextResponse.json({ 
+      const debug = process.env.DEBUG_AI === "1";
+      const payload: { error: string; rawResponse?: string } = {
         error: "Failed to parse AI response",
-        rawResponse: responseContent.slice(0, 1000),
-      }, { status: 500 });
+      };
+      if (debug) payload.rawResponse = responseContent.slice(0, 1000);
+      return NextResponse.json(payload, { status: 500 });
     }
 
     if (!Array.isArray(cards)) {
       throw new Error("AI did not return an array");
     }
 
-    // Save cards
-    const validCards = cards.filter(card => !card._meta);
+    const validCards = cards.filter((card) => typeof card === "object" && card && !(card as { _meta?: unknown })._meta);
     const savedCards = [];
-    
+
     for (const card of validCards) {
       try {
+        const c = card as Record<string, unknown>;
         const chapterId = targetChapters[0] || 1;
-        const savedCard = await prisma.ankiCard.upsert({
-          where: { cardId: card.id || `ch${chapterId}_q${Date.now()}_${Math.random().toString(36).slice(2, 7)}` },
+        const stableCardId =
+          typeof c.id === "string" && c.id.length > 0
+            ? c.id
+            : `ch${chapterId}_q${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+        const savedCard = await db.ankiCard.upsert({
+          where: { cardId: stableCardId },
           create: {
-            cardId: card.id || `ch${chapterId}_q${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            chapter: card.chapter || chapters.find(c => c.id === chapterId)?.label || `Chapter ${chapterId}`,
+            cardId: stableCardId,
+            chapter:
+              (c.chapter as string) ||
+              chapters.find((ch) => ch.id === chapterId)?.label ||
+              `Chapter ${chapterId}`,
             chapterId,
-            sourceQNumber: card.source_q_number || 0,
-            difficulty: card.difficulty || "medium",
-            tags: JSON.stringify(card.tags || []),
-            ankiType: card.anki_type || cardType,
-            clozeText: card.cloze_text,
-            front: card.front,
-            back: card.back,
-            explanation: card.explanation,
-            mnemonic: card.mnemonic,
-            clinicalPearl: card.clinical_pearl,
-            references: JSON.stringify(card.references || []),
-            pitfalls: card.pitfalls,
-            imageDependent: card.image_dependent || false,
-            seeAlso: JSON.stringify(card.see_also || []),
+            sourceQNumber: (c.source_q_number as number) || 0,
+            difficulty: (c.difficulty as string) || "medium",
+            tags: JSON.stringify(c.tags || []),
+            ankiType: (c.anki_type as string) || cardType,
+            clozeText: c.cloze_text as string | undefined,
+            front: c.front as string | undefined,
+            back: c.back as string | undefined,
+            explanation: c.explanation as string | undefined,
+            mnemonic: c.mnemonic as string | undefined,
+            clinicalPearl: c.clinical_pearl as string | undefined,
+            references: JSON.stringify(c.references || []),
+            pitfalls: c.pitfalls as string | undefined,
+            imageDependent: Boolean(c.image_dependent),
+            seeAlso: JSON.stringify(c.see_also || []),
             rawJson: JSON.stringify(card),
           },
           update: {
-            chapter: card.chapter,
+            chapter: c.chapter as string | undefined,
             chapterId,
-            sourceQNumber: card.source_q_number,
-            difficulty: card.difficulty,
-            tags: JSON.stringify(card.tags || []),
-            ankiType: card.anki_type || cardType,
-            clozeText: card.cloze_text,
-            front: card.front,
-            back: card.back,
-            explanation: card.explanation,
-            mnemonic: card.mnemonic,
-            clinicalPearl: card.clinical_pearl,
-            references: JSON.stringify(card.references || []),
-            pitfalls: card.pitfalls,
-            imageDependent: card.image_dependent || false,
-            seeAlso: JSON.stringify(card.see_also || []),
+            sourceQNumber: c.source_q_number as number | undefined,
+            difficulty: c.difficulty as string | undefined,
+            tags: JSON.stringify(c.tags || []),
+            ankiType: (c.anki_type as string) || cardType,
+            clozeText: c.cloze_text as string | undefined,
+            front: c.front as string | undefined,
+            back: c.back as string | undefined,
+            explanation: c.explanation as string | undefined,
+            mnemonic: c.mnemonic as string | undefined,
+            clinicalPearl: c.clinical_pearl as string | undefined,
+            references: JSON.stringify(c.references || []),
+            pitfalls: c.pitfalls as string | undefined,
+            imageDependent: Boolean(c.image_dependent),
+            seeAlso: JSON.stringify(c.see_also || []),
             rawJson: JSON.stringify(card),
           },
         });
@@ -233,18 +245,17 @@ Generate ${targetQuestionCount} cards now. Return ONLY valid JSON.`;
       }
     }
 
-    // Update progress if sequential
     if (updateProgress && isSequential) {
-      const currentChapter = chapters.find(c => c.id === targetChapters[0]);
+      const currentChapter = chapters.find((ch) => ch.id === targetChapters[0]);
       const newQuestionNumber = (progress?.currentQuestionNumber || 0) + savedCards.length;
-      const chapterComplete = currentChapter && newQuestionNumber >= (currentChapter.questionCount || 100);
-      
-      // Find next chapter if current is complete
+      const chapterComplete =
+        currentChapter && newQuestionNumber >= (currentChapter.questionCount || 100);
+
       let nextChapterId = targetChapters[0];
       let nextQuestionNumber = newQuestionNumber;
-      
+
       if (chapterComplete) {
-        const currentIdx = chapters.findIndex(c => c.id === targetChapters[0]);
+        const currentIdx = chapters.findIndex((ch) => ch.id === targetChapters[0]);
         if (currentIdx < chapters.length - 1) {
           nextChapterId = chapters[currentIdx + 1].id;
           nextQuestionNumber = 0;
@@ -253,7 +264,7 @@ Generate ${targetQuestionCount} cards now. Return ONLY valid JSON.`;
 
       const allComplete = chapterComplete && nextChapterId === targetChapters[0];
 
-      progress = await prisma.generationProgress.update({
+      progress = await db.generationProgress.update({
         where: { id: "main" },
         data: {
           currentChapterId: nextChapterId,
@@ -266,55 +277,68 @@ Generate ${targetQuestionCount} cards now. Return ONLY valid JSON.`;
       });
     }
 
+    const responseExtras = progress
+      ? safeJsonArray(progress.extras, [])
+      : [];
+
     return NextResponse.json({
       success: true,
       generatedCount: cards.length,
       savedCount: savedCards.length,
       cards: savedCards,
-      progress: progress ? {
-        ...progress,
-        extras: JSON.parse(progress.extras || "[]"),
-      } : null,
+      progress: progress
+        ? {
+            ...progress,
+            extras: responseExtras,
+          }
+        : null,
     });
   } catch (error) {
     console.error("Generation error:", error);
-    
-    // Update progress with error
+
     try {
-      await prisma.generationProgress.update({
+      await db.generationProgress.update({
         where: { id: "main" },
         data: {
           status: "paused",
           lastError: error instanceof Error ? error.message : String(error),
         },
       });
-    } catch {}
+    } catch {
+      /* ignore */
+    }
 
-    return NextResponse.json({ 
-      error: "Failed to generate cards",
-      details: error instanceof Error ? error.message : String(error),
-    }, { status: 500 });
+    return serverErrorResponse("Failed to generate cards", error);
   }
 }
 
 function buildSystemPrompt(cardType: string, extras: string[]): string {
-  const extraFieldsSchema = extras.map(id => {
-    const map: Record<string, string> = {
-      explanation: `    "explanation": "3–5 sentence mechanism + distractor analysis",`,
-      mnemonic:    `    "mnemonic": "memorable mnemonic device",`,
-      clinical:    `    "clinical_pearl": "one bedside insight",`,
-      resources:   `    "references": ["Author et al. Journal. Year. doi:..."],`,
-      ddx:         `    "pitfalls": "• Wrong A: reason\\n• Wrong B: reason\\n• Lookalike: scenario → answer",`,
-    };
-    return map[id] || "";
-  }).filter(Boolean).join("\n");
+  const extraFieldsSchema = extras
+    .map((id) => {
+      const map: Record<string, string> = {
+        explanation: `    "explanation": "3–5 sentence mechanism + distractor analysis",`,
+        mnemonic: `    "mnemonic": "memorable mnemonic device",`,
+        clinical: `    "clinical_pearl": "one bedside insight",`,
+        resources: `    "references": ["Author et al. Journal. Year. doi:..."],`,
+        ddx: `    "pitfalls": "• Wrong A: reason\\n• Wrong B: reason\\n• Lookalike: scenario → answer",`,
+      };
+      return map[id] || "";
+    })
+    .filter(Boolean)
+    .join("\n");
 
-  const clozeSchema = cardType !== "basic" ? `
-    "cloze_text": "Full vignette + ALL answer choices visible. Answer line at bottom: The correct answer is {{c1::LETTER}} — {{c2::answer text}}.",` : "";
+  const clozeSchema =
+    cardType !== "basic"
+      ? `
+    "cloze_text": "Full vignette + ALL answer choices visible. Answer line at bottom: The correct answer is {{c1::LETTER}} — {{c2::answer text}}.",`
+      : "";
 
-  const basicSchema = cardType !== "cloze" ? `
+  const basicSchema =
+    cardType !== "cloze"
+      ? `
     "front": "Complete clinical vignette + all answer choices A–D exactly as in the textbook",
-    "back": "<b>Answer X — [answer text]</b><br><br>Brief rationale (2–3 sentences). Why wrong answers fail.",` : "";
+    "back": "<b>Answer X — [answer text]</b><br><br>Brief rationale (2–3 sentences). Why wrong answers fail.",`
+      : "";
 
   return `You are an expert Neurocritical Care educator creating high-yield Anki flashcards.
 
@@ -364,59 +388,4 @@ Apply 3–7 tags per card in kebab-case:
 3. Drug or trial (when applicable)
 4. Difficulty tier: "high-yield" or "board-tested" or "nuanced"
 5. Question type: "threshold", "mechanism", "management", "diagnosis", "prognosis"`;
-}
-
-function extractChaptersFromContent(content: string): Array<{ id: number; label: string; startIdx: number; endIdx: number; questionCount: number }> {
-  const lines = content.split("\n");
-  const chapters: Array<{ id: number; label: string; startIdx: number; endIdx: number; questionCount: number }> = [];
-  
-  let currentChapter: { id: number; label: string; startIdx: number; endIdx: number; questionCount: number } | null = null;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    const match = line.match(/^(\d{1,2})\s+([A-Z][A-Za-z\s]{5,50})$/);
-    
-    if (match) {
-      if (currentChapter) {
-        currentChapter.endIdx = i;
-        currentChapter.questionCount = countQuestionsInRange(lines, currentChapter.startIdx, currentChapter.endIdx);
-        chapters.push(currentChapter);
-      }
-      currentChapter = {
-        id: parseInt(match[1]),
-        label: match[2].trim(),
-        startIdx: i,
-        endIdx: lines.length,
-        questionCount: 0,
-      };
-    }
-  }
-  
-  if (currentChapter) {
-    currentChapter.endIdx = lines.length;
-    currentChapter.questionCount = countQuestionsInRange(lines, currentChapter.startIdx, currentChapter.endIdx);
-    chapters.push(currentChapter);
-  }
-
-  if (chapters.length === 0) {
-    chapters.push({
-      id: 1,
-      label: "Content",
-      startIdx: 0,
-      endIdx: lines.length,
-      questionCount: countQuestionsInRange(lines, 0, lines.length),
-    });
-  }
-
-  return chapters;
-}
-
-function countQuestionsInRange(lines: string[], startIdx: number, endIdx: number): number {
-  let count = 0;
-  for (let i = startIdx; i < endIdx && i < lines.length; i++) {
-    if (lines[i].match(/^\d+\.\s+[A-Z]/)) {
-      count++;
-    }
-  }
-  return count;
 }

@@ -1,18 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { db } from "@/lib/db";
+import {
+  clampInt,
+  DEFAULT_LIST_LIMIT,
+  MAX_CARDS_PER_REQUEST,
+  MAX_LIST_LIMIT,
+} from "@/lib/api-limits";
+import { serverErrorResponse } from "@/lib/api-errors";
 
-const prisma = new PrismaClient();
-
-// GET - Retrieve all cards
-export async function GET() {
+// GET - Retrieve cards (paginated)
+export async function GET(request: NextRequest) {
   try {
-    const cards = await prisma.ankiCard.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-    return NextResponse.json({ cards });
+    const { searchParams } = new URL(request.url);
+    const limit = clampInt(
+      searchParams.get("limit"),
+      1,
+      MAX_LIST_LIMIT,
+      DEFAULT_LIST_LIMIT,
+    );
+    const offset = Math.max(0, clampInt(searchParams.get("offset"), 0, MAX_LIST_LIMIT * 100, 0));
+
+    const [cards, total] = await Promise.all([
+      db.ankiCard.findMany({
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: offset,
+      }),
+      db.ankiCard.count(),
+    ]);
+
+    return NextResponse.json({ cards, total, limit, offset });
   } catch (error) {
-    console.error("Error fetching cards:", error);
-    return NextResponse.json({ error: "Failed to fetch cards" }, { status: 500 });
+    return serverErrorResponse("Failed to fetch cards", error);
   }
 }
 
@@ -26,17 +45,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Cards must be an array" }, { status: 400 });
     }
 
-    const savedCards = [];
-    
-    for (const card of cards) {
-      // Skip metadata objects
-      if (card._meta) continue;
+    if (cards.length > MAX_CARDS_PER_REQUEST) {
+      return NextResponse.json(
+        { error: `Too many cards (max ${MAX_CARDS_PER_REQUEST} per request)` },
+        { status: 400 },
+      );
+    }
 
-      const savedCard = await prisma.ankiCard.upsert({
-        where: { cardId: card.id },
+    const savedCards = [];
+
+    for (const card of cards) {
+      if (card._meta) continue;
+      const cardId =
+        typeof card.id === "string" && card.id.length > 0
+          ? card.id
+          : `import_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+
+      const savedCard = await db.ankiCard.upsert({
+        where: { cardId },
         create: {
-          cardId: card.id,
-          chapter: card.chapter,
+          cardId,
+          chapter: card.chapter ?? "Unknown",
+          chapterId: typeof card.chapter_id === "number" ? card.chapter_id : 0,
           sourceQNumber: card.source_q_number || 0,
           difficulty: card.difficulty || "medium",
           tags: JSON.stringify(card.tags || []),
@@ -75,14 +105,13 @@ export async function POST(request: NextRequest) {
       savedCards.push(savedCard);
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       count: savedCards.length,
-      cards: savedCards 
+      cards: savedCards,
     });
   } catch (error) {
-    console.error("Error saving cards:", error);
-    return NextResponse.json({ error: "Failed to save cards" }, { status: 500 });
+    return serverErrorResponse("Failed to save cards", error);
   }
 }
 
@@ -93,18 +122,14 @@ export async function DELETE(request: NextRequest) {
     const id = searchParams.get("id");
 
     if (id) {
-      // Delete single card
-      await prisma.ankiCard.delete({
+      await db.ankiCard.delete({
         where: { id },
       });
       return NextResponse.json({ success: true, message: "Card deleted" });
-    } else {
-      // Delete all cards
-      await prisma.ankiCard.deleteMany();
-      return NextResponse.json({ success: true, message: "All cards deleted" });
     }
+    await db.ankiCard.deleteMany();
+    return NextResponse.json({ success: true, message: "All cards deleted" });
   } catch (error) {
-    console.error("Error deleting cards:", error);
-    return NextResponse.json({ error: "Failed to delete cards" }, { status: 500 });
+    return serverErrorResponse("Failed to delete cards", error);
   }
 }

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
+import { MAX_UPLOAD_BYTES } from "@/lib/api-limits";
+import { serverErrorResponse } from "@/lib/api-errors";
+import { safeJsonArray } from "@/lib/json-safe";
 
 // POST - Upload a file (PDF content as text or markdown)
 export async function POST(request: NextRequest) {
@@ -13,6 +14,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: `File too large (max ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB)` },
+        { status: 413 },
+      );
+    }
+
     const filename = file.name;
     const fileType = filename.endsWith(".md") ? "md" : filename.endsWith(".pdf") ? "pdf" : "txt";
     const content = await file.text();
@@ -21,43 +29,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Empty content" }, { status: 400 });
     }
 
-    // Detect chapters in the content
+    if (content.length > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: `Decoded content too large (max ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB)` },
+        { status: 413 },
+      );
+    }
+
     const chapters = detectChapters(content);
 
-    // Store the file in database
-    const sourceFile = await prisma.sourceFile.create({
-      data: {
-        filename,
-        fileType,
-        content,
-        chapters: JSON.stringify(chapters),
-        totalQuestions: chapters.reduce((sum, ch) => sum + ch.questionCount, 0),
-      },
-    });
-
-    // Reset/update generation progress with new file
-    await prisma.generationProgress.upsert({
-      where: { id: "main" },
-      create: {
-        id: "main",
-        sourceFileId: sourceFile.id,
-        status: "idle",
-        currentChapterId: chapters[0]?.id || 1,
-        currentQuestionNumber: 0,
-        totalCardsGenerated: 0,
-        totalQuestionsTarget: sourceFile.totalQuestions,
-      },
-      update: {
-        sourceFileId: sourceFile.id,
-        status: "idle",
-        currentChapterId: chapters[0]?.id || 1,
-        currentQuestionNumber: 0,
-        totalCardsGenerated: 0,
-        totalQuestionsTarget: sourceFile.totalQuestions,
-        lastError: null,
-        startedAt: null,
-        completedAt: null,
-      },
+    const sourceFile = await db.$transaction(async (tx) => {
+      const sf = await tx.sourceFile.create({
+        data: {
+          filename,
+          fileType,
+          content,
+          chapters: JSON.stringify(chapters),
+          totalQuestions: chapters.reduce((sum, ch) => sum + ch.questionCount, 0),
+        },
+      });
+      await tx.generationProgress.upsert({
+        where: { id: "main" },
+        create: {
+          id: "main",
+          sourceFileId: sf.id,
+          status: "idle",
+          currentChapterId: chapters[0]?.id || 1,
+          currentQuestionNumber: 0,
+          totalCardsGenerated: 0,
+          totalQuestionsTarget: sf.totalQuestions,
+        },
+        update: {
+          sourceFileId: sf.id,
+          status: "idle",
+          currentChapterId: chapters[0]?.id || 1,
+          currentQuestionNumber: 0,
+          totalCardsGenerated: 0,
+          totalQuestionsTarget: sf.totalQuestions,
+          lastError: null,
+          startedAt: null,
+          completedAt: null,
+        },
+      });
+      return sf;
     });
 
     return NextResponse.json({
@@ -70,18 +84,14 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Upload error:", error);
-    return NextResponse.json({ 
-      error: "Failed to upload file",
-      details: error instanceof Error ? error.message : String(error),
-    }, { status: 500 });
+    return serverErrorResponse("Failed to upload file", error);
   }
 }
 
 // GET - Get current source file info
 export async function GET() {
   try {
-    const sourceFile = await prisma.sourceFile.findFirst({
+    const sourceFile = await db.sourceFile.findFirst({
       orderBy: { createdAt: "desc" },
     });
 
@@ -94,23 +104,22 @@ export async function GET() {
         id: sourceFile.id,
         filename: sourceFile.filename,
         fileType: sourceFile.fileType,
-        chapters: JSON.parse(sourceFile.chapters),
+        chapters: safeJsonArray(sourceFile.chapters, []),
         totalQuestions: sourceFile.totalQuestions,
         processed: sourceFile.processed,
         createdAt: sourceFile.createdAt,
       },
     });
   } catch (error) {
-    console.error("Get file error:", error);
-    return NextResponse.json({ error: "Failed to get file info" }, { status: 500 });
+    return serverErrorResponse("Failed to get file info", error);
   }
 }
 
 // DELETE - Delete source file
 export async function DELETE() {
   try {
-    await prisma.sourceFile.deleteMany();
-    await prisma.generationProgress.updateMany({
+    await db.sourceFile.deleteMany();
+    await db.generationProgress.updateMany({
       data: {
         sourceFileId: null,
         status: "idle",
@@ -125,28 +134,38 @@ export async function DELETE() {
     });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Delete error:", error);
-    return NextResponse.json({ error: "Failed to delete file" }, { status: 500 });
+    return serverErrorResponse("Failed to delete file", error);
   }
 }
 
 // Helper function to detect chapters
-function detectChapters(content: string): Array<{ id: number; label: string; startIdx: number; endIdx: number; questionCount: number }> {
+function detectChapters(
+  content: string,
+): Array<{ id: number; label: string; startIdx: number; endIdx: number; questionCount: number }> {
   const lines = content.split("\n");
-  const chapters: Array<{ id: number; label: string; startIdx: number; endIdx: number; questionCount: number }> = [];
-  
-  let currentChapter: { id: number; label: string; startIdx: number; endIdx: number; questionCount: number } | null = null;
-  
+  const chapters: Array<{
+    id: number;
+    label: string;
+    startIdx: number;
+    endIdx: number;
+    questionCount: number;
+  }> = [];
+
+  let currentChapter: (typeof chapters)[number] | null = null;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    
-    // Look for numbered chapters (e.g., "1 CNS Ischemia" or "1. CNS Ischemia")
+
     const match = line.match(/^(\d{1,2})[.\s]+([A-Z][A-Za-z\s]{3,40})$/);
-    
+
     if (match) {
       if (currentChapter) {
         currentChapter.endIdx = i;
-        currentChapter.questionCount = countQuestionsInRange(lines, currentChapter.startIdx, currentChapter.endIdx);
+        currentChapter.questionCount = countQuestionsInRange(
+          lines,
+          currentChapter.startIdx,
+          currentChapter.endIdx,
+        );
         chapters.push(currentChapter);
       }
       currentChapter = {
@@ -158,14 +177,17 @@ function detectChapters(content: string): Array<{ id: number; label: string; sta
       };
     }
   }
-  
+
   if (currentChapter) {
     currentChapter.endIdx = lines.length;
-    currentChapter.questionCount = countQuestionsInRange(lines, currentChapter.startIdx, currentChapter.endIdx);
+    currentChapter.questionCount = countQuestionsInRange(
+      lines,
+      currentChapter.startIdx,
+      currentChapter.endIdx,
+    );
     chapters.push(currentChapter);
   }
 
-  // If no chapters found, create a default one
   if (chapters.length === 0) {
     chapters.push({
       id: 1,
@@ -182,7 +204,6 @@ function detectChapters(content: string): Array<{ id: number; label: string; sta
 function countQuestionsInRange(lines: string[], startIdx: number, endIdx: number): number {
   let count = 0;
   for (let i = startIdx; i < endIdx && i < lines.length; i++) {
-    // Match numbered questions like "1.", "2.", etc. at start of line
     if (lines[i].match(/^\d+\.\s+[A-Z]/)) {
       count++;
     }
