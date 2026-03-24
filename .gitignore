@@ -20,6 +20,9 @@ node_modules
 # production
 /build
 
+# local embedded Postgres (npm run dev:local)
+.embedded-postgres/
+
 # misc
 .DS_Store
 *.pem
@@ -32,6 +35,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -49,3 +53,4 @@ prompt
 server.log
 # Skills directory
 /skills/
+.vercel
