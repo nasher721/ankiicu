@@ -126,6 +126,7 @@ export default function UploadPage() {
           success?: boolean;
           error?: string;
           details?: string;
+          code?: string;
           file?: SourceFile;
         } = {};
         try {
@@ -143,7 +144,11 @@ export default function UploadPage() {
             typeof data.error === "string"
               ? data.error
               : `Upload failed (${res.status})`;
-          throw new Error(data.details ? `${msg}: ${data.details}` : msg);
+          const prismaCode =
+            typeof data.code === "string" && data.code.length > 0 ? ` (${data.code})` : "";
+          throw new Error(
+            data.details ? `${msg}${prismaCode}: ${data.details}` : `${msg}${prismaCode}`,
+          );
         }
 
         if (data.success && data.file) {

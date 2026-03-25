@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma, type SourceFile } from "@prisma/client";
 import { db } from "@/lib/db";
 import { MAX_UPLOAD_BYTES } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
@@ -65,49 +66,56 @@ export async function POST(request: NextRequest) {
     }
 
     const chapters = detectChapters(content);
+    const totalQuestions = chapters.reduce((sum, ch) => sum + ch.questionCount, 0);
 
-    // Large textbook uploads (especially .md/.txt) can take >5s to persist; Prisma's
-    // default interactive transaction timeout is 5000ms and would roll back with a generic error.
-    const sourceFile = await db.$transaction(
-      async (tx) => {
-        const sf = await tx.sourceFile.create({
+    // Avoid interactive $transaction: Neon's pooled DATABASE_URL (PgBouncer) often cannot
+    // reliably hold an interactive transaction across round-trips, which surfaces as a
+    // generic "Failed to upload file" even though each statement would succeed alone.
+    const sourceFile = await (async (): Promise<SourceFile> => {
+      let created: SourceFile | undefined;
+      try {
+        created = await db.sourceFile.create({
           data: {
             filename,
             fileType,
             content,
             chapters: JSON.stringify(chapters),
-            totalQuestions: chapters.reduce((sum, ch) => sum + ch.questionCount, 0),
+            totalQuestions,
           },
         });
-        await tx.generationProgress.upsert({
+        await db.generationProgress.upsert({
           where: { id: "main" },
           create: {
             id: "main",
-            sourceFileId: sf.id,
+            sourceFileId: created.id,
             status: "idle",
             currentChapterId: chapters[0]?.id || 1,
             currentQuestionNumber: 0,
             totalCardsGenerated: 0,
-            totalQuestionsTarget: sf.totalQuestions,
+            totalQuestionsTarget: created.totalQuestions,
             includedChapterIds: null,
           },
           update: {
-            sourceFileId: sf.id,
+            sourceFileId: created.id,
             status: "idle",
             currentChapterId: chapters[0]?.id || 1,
             currentQuestionNumber: 0,
             totalCardsGenerated: 0,
-            totalQuestionsTarget: sf.totalQuestions,
+            totalQuestionsTarget: created.totalQuestions,
             includedChapterIds: null,
             lastError: null,
             startedAt: null,
             completedAt: null,
           },
         });
-        return sf;
-      },
-      { maxWait: 20_000, timeout: 120_000 },
-    );
+        return created;
+      } catch (persistErr) {
+        if (created?.id) {
+          await db.sourceFile.delete({ where: { id: created.id } }).catch(() => {});
+        }
+        throw persistErr;
+      }
+    })();
 
     return NextResponse.json({
       success: true,
@@ -123,6 +131,40 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "";
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error("Upload Prisma error", error.code, error.message, error.meta);
+      const hints: Record<string, string> = {
+        P1001:
+          "Could not reach the database. Check DATABASE_URL and that your provider allows connections from Vercel (IP allowlist, etc.).",
+        P1008:
+          "Database operation timed out. Try a smaller file or a database plan with higher timeouts.",
+        P1017:
+          "Database server closed the connection. Retry; with serverless Postgres use a pooler URL intended for Prisma.",
+        P2024: "Connection pool timed out. Retry or increase pool size / use Neon's pooled connection string.",
+        P2034: "Write conflict or deadlock. Retry the upload.",
+      };
+      return NextResponse.json(
+        {
+          error: hints[error.code] ?? "Could not save the file to the database.",
+          code: error.code,
+          ...(process.env.NODE_ENV !== "production" ? { details: error.message } : {}),
+        },
+        { status: 500 },
+      );
+    }
+
+    if (error instanceof Prisma.PrismaClientValidationError) {
+      console.error("Upload Prisma validation", error.message);
+      return NextResponse.json(
+        {
+          error: "Invalid data when saving the upload.",
+          ...(process.env.NODE_ENV !== "production" ? { details: error.message } : {}),
+        },
+        { status: 400 },
+      );
+    }
+
     if (/timeout|timed out|Transaction.*closed/i.test(msg)) {
       return NextResponse.json(
         {
@@ -132,6 +174,7 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
+
     return serverErrorResponse("Failed to upload file", error);
   }
 }
