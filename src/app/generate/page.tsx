@@ -76,7 +76,16 @@ const EXTRAS = [
   { id: "mnemonic", label: "Mnemonic", description: "Memory aids for difficult concepts" },
   { id: "clinical", label: "Clinical pearl", description: "Bedside insights and practical tips" },
   { id: "resources", label: "Key references", description: "Studies and guidelines cited" },
-  { id: "ddx", label: "Pitfall analysis", description: "Common mistakes and wrong answer explanations" },
+  {
+    id: "differential",
+    label: "Differential diagnosis",
+    description: "Ordered DDx with discriminating features (separate from distractor analysis)",
+  },
+  {
+    id: "pitfalls",
+    label: "Pitfall analysis",
+    description: "Why wrong answers tempt, look-alikes, and common board traps",
+  },
 ];
 
 export default function GeneratePage() {

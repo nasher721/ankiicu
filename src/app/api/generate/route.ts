@@ -9,6 +9,7 @@ import {
 } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
+import { migrateLegacyGenerationExtraIds, parseProgressExtras } from "@/lib/generation-extras";
 import { resolveIncludedChapterIds, type DetectedChapter } from "@/lib/chapters";
 import type { AnkiCard } from "@prisma/client";
 
@@ -29,8 +30,9 @@ export async function POST(request: NextRequest) {
     const sourceFile = await db.sourceFile.findFirst({ orderBy: { createdAt: "desc" } });
 
     const cardType = overrideCardType || progress?.cardType || "cloze";
-    const extras =
-      overrideExtras ?? safeJsonArray(progress?.extras, ["explanation"]);
+    const extras = migrateLegacyGenerationExtraIds(
+      overrideExtras ?? safeJsonArray(progress?.extras, ["explanation"]),
+    );
     const batchSize = clampInt(
       progress?.batchSize ?? 5,
       MIN_BATCH_SIZE,
@@ -242,6 +244,7 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
             clinicalPearl: c.clinical_pearl as string | undefined,
             references: JSON.stringify(c.references || []),
             pitfalls: c.pitfalls as string | undefined,
+            ddx: (c.ddx as string | undefined) ?? undefined,
             imageDependent: Boolean(c.image_dependent),
             seeAlso: JSON.stringify(c.see_also || []),
             rawJson: JSON.stringify(card),
@@ -261,6 +264,7 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
             clinicalPearl: c.clinical_pearl as string | undefined,
             references: JSON.stringify(c.references || []),
             pitfalls: c.pitfalls as string | undefined,
+            ddx: (c.ddx as string | undefined) ?? undefined,
             imageDependent: Boolean(c.image_dependent),
             seeAlso: JSON.stringify(c.see_also || []),
             rawJson: JSON.stringify(card),
@@ -307,9 +311,7 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
       });
     }
 
-    const responseExtras = progress
-      ? safeJsonArray(progress.extras, [])
-      : [];
+    const responseExtras = progress ? parseProgressExtras(progress.extras, []) : [];
 
     return NextResponse.json({
       success: true,
@@ -346,11 +348,12 @@ function buildSystemPrompt(cardType: string, extras: string[]): string {
   const extraFieldsSchema = extras
     .map((id) => {
       const map: Record<string, string> = {
-        explanation: `    "explanation": "3–5 sentence mechanism + distractor analysis",`,
-        mnemonic: `    "mnemonic": "memorable mnemonic device",`,
+        explanation: `    "explanation": "3–5 sentences: mechanism and why the keyed answer is correct; when the passage explains it, stay close to that text—otherwise note briefly as board-style teaching",`,
+        mnemonic: `    "mnemonic": "short memorable device or empty string if none fits",`,
         clinical: `    "clinical_pearl": "one bedside insight",`,
         resources: `    "references": ["Author et al. Journal. Year. doi:..."],`,
-        ddx: `    "pitfalls": "• Wrong A: reason\\n• Wrong B: reason\\n• Lookalike: scenario → answer",`,
+        differential: `    "ddx": "ordered differential for this vignette (most likely first); 3–6 bullets with 1 line each on discriminating features vs the correct diagnosis",`,
+        pitfalls: `    "pitfalls": "wrong-answer and trap analysis only: • Wrong A/B/C/D: why tempting vs false\\n• look-alike pearls; do not repeat the full differential here",`,
       };
       return map[id] || "";
     })
@@ -410,6 +413,10 @@ CLOZE DELETION RULES:
 - **easy**: Direct recall — drug name, classification, single number
 - **medium**: Clinical reasoning — integrating 2–3 facts, distinguishing similar options
 - **hard**: Nuanced management — competing priorities, contraindications with exceptions
+
+## EXTRA FIELDS (when included in the schema)
+- Ground content in the provided chapter excerpt when discussion, post-answer explanation, or pearls appear there; paraphrase compactly.
+- **ddx** = differential diagnosis for the stem only. **pitfalls** = why distractors fail and common board traps—not a second differential list.
 
 ## TAGGING
 Apply 3–7 tags per card in kebab-case:

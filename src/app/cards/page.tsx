@@ -32,7 +32,8 @@ import {
   Lightbulb,
   Sparkles,
   AlertTriangle,
-  BookMarked
+  BookMarked,
+  ListOrdered,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -53,6 +54,7 @@ interface AnkiCard {
   clinicalPearl: string | null;
   references: string | null;
   pitfalls: string | null;
+  ddx: string | null;
   imageDependent: boolean;
   createdAt: string;
 }
@@ -666,6 +668,20 @@ export default function CardsPage() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm">{viewingCard.clinicalPearl}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {viewingCard?.ddx && (
+                <Card className="border-teal-200 dark:border-teal-800">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2 text-teal-600">
+                      <ListOrdered className="h-4 w-4" />
+                      Differential diagnosis
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm whitespace-pre-wrap">{viewingCard.ddx}</p>
                   </CardContent>
                 </Card>
               )}

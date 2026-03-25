@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
         "clinical_pearl",
         "references",
         "pitfalls",
+        "ddx",
       ];
 
       const escapeCSV = (str: string | null) => {
@@ -71,6 +72,7 @@ export async function GET(request: NextRequest) {
             escapeCSV(card.clinicalPearl),
             escapeCSV(card.references),
             escapeCSV(card.pitfalls),
+            escapeCSV(card.ddx),
           ].join(","),
         ),
       ];
@@ -102,6 +104,7 @@ export async function GET(request: NextRequest) {
           clinical_pearl: card.clinicalPearl,
           references: safeJsonArray(card.references, []),
           pitfalls: card.pitfalls,
+          ddx: card.ddx,
           image_dependent: card.imageDependent,
           see_also: safeJsonArray(card.seeAlso, []),
         };

@@ -55,7 +55,8 @@ model AnkiCard {
   clinicalPearl   String?
   references      String?  // JSON array as string
   pitfalls        String?
-  
+  ddx             String?  // Ordered differential diagnosis narrative (separate from pitfalls / distractors)
+
   // Metadata
   imageDependent  Boolean  @default(false)
   seeAlso         String?  // JSON array as string

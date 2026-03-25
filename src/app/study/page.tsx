@@ -13,6 +13,7 @@ import {
   Lightbulb, 
   Sparkles, 
   AlertTriangle,
+  ListOrdered,
   ChevronLeft,
   ChevronRight,
   RotateCcw,
@@ -38,6 +39,7 @@ interface AnkiCard {
   mnemonic: string | null;
   clinicalPearl: string | null;
   pitfalls: string | null;
+  ddx: string | null;
 }
 
 export default function StudyPage() {
@@ -49,6 +51,7 @@ export default function StudyPage() {
     explanation: true,
     mnemonic: true,
     clinicalPearl: true,
+    ddx: false,
     pitfalls: false,
   });
 
@@ -264,6 +267,13 @@ export default function StudyPage() {
               available={!!currentCard.clinicalPearl}
             />
             <ExtraToggle
+              label="DDx"
+              active={showExtras.ddx}
+              onClick={() => setShowExtras(prev => ({ ...prev, ddx: !prev.ddx }))}
+              icon={ListOrdered}
+              available={!!currentCard.ddx}
+            />
+            <ExtraToggle
               label="Pitfalls"
               active={showExtras.pitfalls}
               onClick={() => setShowExtras(prev => ({ ...prev, pitfalls: !prev.pitfalls }))}
@@ -296,6 +306,14 @@ export default function StudyPage() {
                 content={currentCard.clinicalPearl}
                 icon={Sparkles}
                 color="amber"
+              />
+            )}
+            {showExtras.ddx && currentCard.ddx && (
+              <ExtraCard
+                title="Differential diagnosis"
+                content={currentCard.ddx}
+                icon={ListOrdered}
+                color="teal"
               />
             )}
             {showExtras.pitfalls && currentCard.pitfalls && (
@@ -377,12 +395,13 @@ function ExtraCard({
   title: string;
   content: string;
   icon: React.ElementType;
-  color: "blue" | "purple" | "amber" | "red";
+  color: "blue" | "purple" | "amber" | "teal" | "red";
 }) {
   const colorClasses = {
     blue: "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20",
     purple: "border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20",
     amber: "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20",
+    teal: "border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/20",
     red: "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20",
   };
 
@@ -390,6 +409,7 @@ function ExtraCard({
     blue: "text-blue-600",
     purple: "text-purple-600",
     amber: "text-amber-600",
+    teal: "text-teal-600",
     red: "text-red-600",
   };
 

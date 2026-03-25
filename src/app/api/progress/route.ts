@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { clampInt, MAX_BATCH_SIZE, MIN_BATCH_SIZE } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
+import { migrateLegacyGenerationExtraIds, parseProgressExtras } from "@/lib/generation-extras";
 import {
   resolveIncludedChapterIds,
   sumQuestionTargetForIds,
@@ -34,7 +35,7 @@ export async function GET() {
     return NextResponse.json({
       progress: {
         ...progress,
-        extras: safeJsonArray(progress.extras, []),
+        extras: parseProgressExtras(progress.extras, []),
         includedChapterIds:
           progress.includedChapterIds === null || progress.includedChapterIds === ""
             ? null
@@ -66,7 +67,11 @@ export async function PUT(request: NextRequest) {
       updateData.batchSize = clampInt(batchSize, MIN_BATCH_SIZE, MAX_BATCH_SIZE, 5);
     }
     if (cardType !== undefined) updateData.cardType = cardType;
-    if (extras !== undefined) updateData.extras = JSON.stringify(extras);
+    if (extras !== undefined) {
+      updateData.extras = JSON.stringify(
+        Array.isArray(extras) ? migrateLegacyGenerationExtraIds(extras as string[]) : extras,
+      );
+    }
     if (status !== undefined) updateData.status = status;
 
     if (includedChapterIds !== undefined) {
@@ -124,7 +129,7 @@ export async function PUT(request: NextRequest) {
       success: true,
       progress: {
         ...finalProgress,
-        extras: safeJsonArray(finalProgress.extras, []),
+        extras: parseProgressExtras(finalProgress.extras, []),
         includedChapterIds:
           finalProgress.includedChapterIds === null ||
           finalProgress.includedChapterIds === ""
