@@ -8,6 +8,8 @@ import { apiAuthOr401 } from "@/lib/api-auth";
 import { bytesToUploadText, isContentWithinByteLimit } from "@/lib/upload-extract";
 
 export const runtime = "nodejs";
+/** Allow large textbook writes (platform may clamp, e.g. Vercel Hobby ~10s). */
+export const maxDuration = 120;
 
 // POST - Upload a file (binary PDF, or text / markdown)
 export async function POST(request: NextRequest) {
@@ -64,43 +66,48 @@ export async function POST(request: NextRequest) {
 
     const chapters = detectChapters(content);
 
-    const sourceFile = await db.$transaction(async (tx) => {
-      const sf = await tx.sourceFile.create({
-        data: {
-          filename,
-          fileType,
-          content,
-          chapters: JSON.stringify(chapters),
-          totalQuestions: chapters.reduce((sum, ch) => sum + ch.questionCount, 0),
-        },
-      });
-      await tx.generationProgress.upsert({
-        where: { id: "main" },
-        create: {
-          id: "main",
-          sourceFileId: sf.id,
-          status: "idle",
-          currentChapterId: chapters[0]?.id || 1,
-          currentQuestionNumber: 0,
-          totalCardsGenerated: 0,
-          totalQuestionsTarget: sf.totalQuestions,
-          includedChapterIds: null,
-        },
-        update: {
-          sourceFileId: sf.id,
-          status: "idle",
-          currentChapterId: chapters[0]?.id || 1,
-          currentQuestionNumber: 0,
-          totalCardsGenerated: 0,
-          totalQuestionsTarget: sf.totalQuestions,
-          includedChapterIds: null,
-          lastError: null,
-          startedAt: null,
-          completedAt: null,
-        },
-      });
-      return sf;
-    });
+    // Large textbook uploads (especially .md/.txt) can take >5s to persist; Prisma's
+    // default interactive transaction timeout is 5000ms and would roll back with a generic error.
+    const sourceFile = await db.$transaction(
+      async (tx) => {
+        const sf = await tx.sourceFile.create({
+          data: {
+            filename,
+            fileType,
+            content,
+            chapters: JSON.stringify(chapters),
+            totalQuestions: chapters.reduce((sum, ch) => sum + ch.questionCount, 0),
+          },
+        });
+        await tx.generationProgress.upsert({
+          where: { id: "main" },
+          create: {
+            id: "main",
+            sourceFileId: sf.id,
+            status: "idle",
+            currentChapterId: chapters[0]?.id || 1,
+            currentQuestionNumber: 0,
+            totalCardsGenerated: 0,
+            totalQuestionsTarget: sf.totalQuestions,
+            includedChapterIds: null,
+          },
+          update: {
+            sourceFileId: sf.id,
+            status: "idle",
+            currentChapterId: chapters[0]?.id || 1,
+            currentQuestionNumber: 0,
+            totalCardsGenerated: 0,
+            totalQuestionsTarget: sf.totalQuestions,
+            includedChapterIds: null,
+            lastError: null,
+            startedAt: null,
+            completedAt: null,
+          },
+        });
+        return sf;
+      },
+      { maxWait: 20_000, timeout: 120_000 },
+    );
 
     return NextResponse.json({
       success: true,
@@ -115,6 +122,16 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    const msg = error instanceof Error ? error.message : "";
+    if (/timeout|timed out|Transaction.*closed/i.test(msg)) {
+      return NextResponse.json(
+        {
+          error:
+            "Saving the file timed out. Try again, use a smaller export, or check your database/network (large books need a longer DB write).",
+        },
+        { status: 503 },
+      );
+    }
     return serverErrorResponse("Failed to upload file", error);
   }
 }

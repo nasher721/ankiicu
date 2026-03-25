@@ -43,7 +43,7 @@ export async function bytesToUploadText(buf: ArrayBuffer, filename: string): Pro
   }
 
   const raw = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  const content = raw.replace(/\0/g, "");
+  const content = raw.replace(/\0/g, "").replace(/^\uFEFF/, "");
   return { content, fileType: inferFileType(filename, false) };
 }
 
