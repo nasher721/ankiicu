@@ -106,6 +106,11 @@ export default function GeneratePage() {
         fetch("/api/upload"),
       ]);
       
+      if (progressRes.status === 401 || uploadRes.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
       const progressData = await progressRes.json();
       const uploadData = await uploadRes.json();
 
@@ -428,6 +433,7 @@ export default function GeneratePage() {
     fetchData();
     toast({ title: "Progress reset" });
   }, [addActivity, fetchData]);
+
 
   const progressPercent = progress && progress.totalQuestionsTarget > 0
     ? Math.min(100, Math.round((progress.totalCardsGenerated / progress.totalQuestionsTarget) * 100))

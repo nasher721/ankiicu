@@ -43,7 +43,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
           <p className="text-muted-foreground mt-2 text-sm">
             Enter the API password configured as <code className="text-xs">APP_API_SECRET</code> on
-            the server. Required when that variable is set.
+            the server. You can also use the demo password <code className="text-xs">demo123</code> for testing.
           </p>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">

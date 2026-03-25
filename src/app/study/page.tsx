@@ -55,6 +55,10 @@ export default function StudyPage() {
   const fetchCards = useCallback(async () => {
     try {
       const res = await fetch(cardsApiUrl);
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
       const data = await res.json();
       setCards(data.cards || []);
     } catch (error) {

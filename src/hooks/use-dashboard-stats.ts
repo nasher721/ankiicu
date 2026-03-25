@@ -84,6 +84,11 @@ export function useDashboardStats(intervalMs = 30_000) {
         fetch("/api/progress"),
       ]);
 
+      if (cardsRes.status === 401 || progressRes.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
       const cardsData = await cardsRes.json();
       const progressData = await progressRes.json();
 

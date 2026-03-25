@@ -24,14 +24,18 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   
+  const [compactMode, setCompactMode] = useState(false);
+  const [autoSave, setAutoSave] = useState(true);
+  const [notify, setNotify] = useState(true);
+
   // Prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
 
   const handleClearData = async () => {
-    if (!confirm("WARNING: This will delete ALL cards and reset all progress. This cannot be undone.")) return;
-    if (!confirm("Are you absolutely sure? Type 'yes' to confirm.")) return;
+    const confirmDelete = window.prompt("WARNING: This will delete ALL cards and reset all progress. This cannot be undone.\nType 'yes' to confirm:");
+    if (confirmDelete?.toLowerCase() !== 'yes') return;
     
     try {
       await fetch("/api/cards", { method: "DELETE" });
@@ -97,7 +101,13 @@ export default function SettingsPage() {
                 Reduce spacing for denser UI
               </p>
             </div>
-            <Switch />
+            <Switch
+              checked={compactMode}
+              onCheckedChange={(checked) => {
+                setCompactMode(checked);
+                toast({ title: "Settings updated", description: `Compact mode ${checked ? "enabled" : "disabled"}` });
+              }}
+            />
           </div>
         </CardContent>
       </Card>
@@ -121,7 +131,13 @@ export default function SettingsPage() {
                 Automatically save generated cards
               </p>
             </div>
-            <Switch defaultChecked />
+            <Switch
+              checked={autoSave}
+              onCheckedChange={(checked) => {
+                setAutoSave(checked);
+                toast({ title: "Settings updated", description: `Auto-save ${checked ? "enabled" : "disabled"}` });
+              }}
+            />
           </div>
 
           <Separator />
@@ -133,7 +149,13 @@ export default function SettingsPage() {
                 Show notification when generation completes
               </p>
             </div>
-            <Switch defaultChecked />
+            <Switch
+              checked={notify}
+              onCheckedChange={(checked) => {
+                setNotify(checked);
+                toast({ title: "Settings updated", description: `Notifications ${checked ? "enabled" : "disabled"}` });
+              }}
+            />
           </div>
         </CardContent>
       </Card>

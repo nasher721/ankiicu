@@ -46,6 +46,10 @@ export default function UploadPage() {
   const fetchSourceFile = useCallback(async () => {
     try {
       const res = await fetch("/api/upload");
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
       const data = await res.json();
       if (data.file) {
         setSourceFile(data.file);
@@ -74,6 +78,10 @@ export default function UploadPage() {
         method: "POST",
         body: formData,
       });
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
       const data = await res.json();
       
       if (data.success) {
@@ -101,7 +109,11 @@ export default function UploadPage() {
     if (!confirm("Are you sure you want to delete this file? This will also reset your generation progress.")) return;
     
     try {
-      await fetch("/api/upload", { method: "DELETE" });
+      const res = await fetch("/api/upload", { method: "DELETE" });
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
       setSourceFile(null);
       toast({ title: "File deleted", description: "Upload a new file to start over." });
     } catch {
