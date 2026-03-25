@@ -132,7 +132,30 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
       });
     }
 
-    const zai = await ZAI.create();
+    const authHeader = request.headers.get("Authorization");
+    let apiKey = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
+    
+    if (!apiKey) {
+      apiKey = process.env.Z_AI_API_KEY || null;
+    }
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "Unauthorized: Missing AI API Key. Please provide it in the settings." },
+        { status: 401 }
+      );
+    }
+
+    let zai;
+    try {
+      zai = await ZAI.create();
+      (zai as any).config.apiKey = apiKey;
+    } catch (e) {
+      zai = new (ZAI as any)({
+        baseUrl: process.env.Z_AI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4",
+        apiKey: apiKey,
+      });
+    }
     const completion = await zai.chat.completions.create({
       model: "glm-5",
       messages: [

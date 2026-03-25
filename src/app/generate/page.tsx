@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { ApiKeyModal } from "@/components/ui/api-key-modal";
+import { useApiKey } from "@/hooks/use-api-key";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -78,6 +80,9 @@ const EXTRAS = [
 ];
 
 export default function GeneratePage() {
+  const { key, isReady, clearKey } = useApiKey();
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"single" | "sequential" | null>(null);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSequentialRunning, setIsSequentialRunning] = useState(false);
@@ -252,13 +257,22 @@ export default function GeneratePage() {
       return;
     }
 
+    if (!key) {
+      setPendingAction("single");
+      setIsKeyModalOpen(true);
+      return;
+    }
+
     setIsGenerating(true);
     addActivity("info", `Starting batch generation (${batchSize} cards)...`);
     
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${key}`
+        },
         body: JSON.stringify({
           mode: "single",
           cardType,
@@ -269,6 +283,12 @@ export default function GeneratePage() {
 
       const data = await res.json();
       
+      if (res.status === 401 || data.error?.toLowerCase().includes("api key") || data.error?.includes("authentication")) {
+        clearKey();
+        setIsKeyModalOpen(true);
+        throw new Error("Invalid API key. Please update your key.");
+      }
+
       if (data.success) {
         addActivity("success", `Generated ${data.savedCount} cards`, { 
           generated: data.savedCount,
@@ -286,7 +306,7 @@ export default function GeneratePage() {
     } finally {
       setIsGenerating(false);
     }
-  }, [hasSourceFile, batchSize, cardType, extras, addActivity, fetchData]);
+  }, [hasSourceFile, batchSize, cardType, extras, addActivity, fetchData, key, clearKey]);
 
   const startSequentialGeneration = useCallback(async () => {
     if (!hasSourceFile) {
@@ -295,6 +315,12 @@ export default function GeneratePage() {
         description: "Please upload a textbook first.", 
         variant: "destructive" 
       });
+      return;
+    }
+
+    if (!key) {
+      setPendingAction("sequential");
+      setIsKeyModalOpen(true);
       return;
     }
 
@@ -313,7 +339,10 @@ export default function GeneratePage() {
       try {
         const res = await fetch("/api/generate", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${key}`
+          },
           body: JSON.stringify({
             mode: "batch",
             cardType,
@@ -324,6 +353,12 @@ export default function GeneratePage() {
 
         const data = await res.json();
         
+        if (res.status === 401 || data.error?.toLowerCase().includes("api key") || data.error?.includes("authentication")) {
+          clearKey();
+          setIsKeyModalOpen(true);
+          throw new Error("Invalid API key. Please update your key.");
+        }
+
         if (data.success) {
           addActivity("success", `Batch complete: ${data.savedCount} cards`, {
             generated: data.savedCount,
@@ -364,7 +399,7 @@ export default function GeneratePage() {
         await runBatch();
       }, 30000);
     }
-  }, [hasSourceFile, cardType, extras, batchSize, autoContinue, addActivity, fetchData, updateProgressSettings]);
+  }, [hasSourceFile, cardType, extras, batchSize, autoContinue, addActivity, fetchData, updateProgressSettings, key, clearKey]);
 
   const stopSequentialGeneration = useCallback(async () => {
     setIsSequentialRunning(false);
@@ -791,6 +826,21 @@ export default function GeneratePage() {
           </Card>
         </div>
       </div>
+      <ApiKeyModal
+        isOpen={isKeyModalOpen}
+        onOpenChange={(open) => {
+          setIsKeyModalOpen(open);
+          if (!open) setPendingAction(null);
+        }}
+        onSave={() => {
+          if (pendingAction === "single") {
+            generateSingleBatch();
+          } else if (pendingAction === "sequential") {
+            startSequentialGeneration();
+          }
+          setPendingAction(null);
+        }}
+      />
     </div>
   );
 
