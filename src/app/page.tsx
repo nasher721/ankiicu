@@ -17,7 +17,8 @@ import {
   Sparkles,
   TrendingUp,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Download
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";

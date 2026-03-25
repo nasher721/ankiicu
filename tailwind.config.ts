@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
-const config: Config = {
+const config: Config & { safelist?: string[] } = {
     darkMode: "class",
     content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",

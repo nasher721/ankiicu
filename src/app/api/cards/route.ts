@@ -7,6 +7,7 @@ import {
   MAX_LIST_LIMIT,
 } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
+import type { AnkiCard } from "@prisma/client";
 
 // GET - Retrieve cards (paginated)
 export async function GET(request: NextRequest) {
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const savedCards = [];
+    const savedCards: AnkiCard[] = [];
 
     for (const card of cards) {
       if (card._meta) continue;

@@ -47,7 +47,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body
         className={cn(
-          "${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground",
+          `${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`,
           "min-h-screen"
         )}
       >

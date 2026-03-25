@@ -9,6 +9,7 @@ import {
 } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
+import type { AnkiCard } from "@prisma/client";
 import ZAI from "z-ai-web-dev-sdk";
 
 // POST - Generate cards (single batch or continue sequence)
@@ -183,7 +184,7 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
     }
 
     const validCards = cards.filter((card) => typeof card === "object" && card && !(card as { _meta?: unknown })._meta);
-    const savedCards = [];
+    const savedCards: AnkiCard[] = [];
 
     for (const card of validCards) {
       try {

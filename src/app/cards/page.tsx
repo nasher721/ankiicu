@@ -143,6 +143,7 @@ export default function CardsPage() {
         bVal = (bVal as string).toLowerCase();
       }
       
+      if (aVal == null || bVal == null) return 0;
       if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
       if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
       return 0;
