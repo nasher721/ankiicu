@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const filename = file.name;
+    const filename = file.name || "unknown.txt";
     const fileType = filename.endsWith(".md") ? "md" : filename.endsWith(".pdf") ? "pdf" : "txt";
     const rawContent = await file.text();
     

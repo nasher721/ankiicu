@@ -249,6 +249,7 @@ export default function UploadPage() {
             className="hidden"
             accept=".md,.txt,.pdf"
             onChange={handleFileUpload}
+            onClick={(e) => { (e.target as HTMLInputElement).value = "" }}
           />
         </CardContent>
       </Card>
