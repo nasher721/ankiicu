@@ -37,8 +37,14 @@ interface SourceFile {
   createdAt: string;
 }
 
+function mbFromBytes(n: number): string {
+  const mb = n / (1024 * 1024);
+  return mb % 1 === 0 ? String(Math.round(mb)) : mb.toFixed(1);
+}
+
 export default function UploadPage() {
   const [sourceFile, setSourceFile] = useState<SourceFile | null>(null);
+  const [maxUploadBytes, setMaxUploadBytes] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,12 +57,15 @@ export default function UploadPage() {
         return;
       }
       const raw = await res.text();
-      let data: { file?: SourceFile | null };
+      let data: { file?: SourceFile | null; limits?: { maxUploadBytes?: number } };
       try {
-        data = raw ? (JSON.parse(raw) as { file?: SourceFile | null }) : { file: null };
+        data = raw ? (JSON.parse(raw) as typeof data) : { file: null };
       } catch {
         console.error("Non-JSON /api/upload response:", raw.slice(0, 300));
         return;
+      }
+      if (typeof data.limits?.maxUploadBytes === "number" && data.limits.maxUploadBytes > 0) {
+        setMaxUploadBytes(data.limits.maxUploadBytes);
       }
       if (data.file) {
         setSourceFile(data.file);
@@ -72,69 +81,93 @@ export default function UploadPage() {
     fetchSourceFile();
   }, [fetchSourceFile]);
 
-  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
 
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-        credentials: "same-origin",
-      });
-      if (res.status === 401) {
-        window.location.href = "/login";
+      if (maxUploadBytes != null && file.size > maxUploadBytes) {
+        toast({
+          title: "File too large",
+          description: `Max size here is ${mbFromBytes(maxUploadBytes)} MB. Use a smaller PDF or export as .md / .txt (or self-host for larger limits).`,
+          variant: "destructive",
+        });
+        if (fileInputRef.current) fileInputRef.current.value = "";
         return;
       }
-      const raw = await res.text();
-      let data: {
-        success?: boolean;
-        error?: string;
-        details?: string;
-        file?: SourceFile;
-      } = {};
+
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append("file", file);
+
       try {
-        data = raw ? (JSON.parse(raw) as typeof data) : {};
-      } catch {
-        throw new Error(
-          raw.trim().startsWith("<")
-            ? `Upload failed (${res.status}): server returned HTML instead of JSON`
-            : `Upload failed (${res.status}): ${raw.slice(0, 200)}`,
-        );
-      }
-
-      if (!res.ok) {
-        const msg =
-          typeof data.error === "string"
-            ? data.error
-            : `Upload failed (${res.status})`;
-        throw new Error(data.details ? `${msg}: ${data.details}` : msg);
-      }
-
-      if (data.success && data.file) {
-        setSourceFile(data.file);
-        toast({
-          title: "File uploaded successfully!",
-          description: `${data.file.filename} - ${data.file.totalQuestions} questions detected across ${data.file.chapters.length} chapters.`,
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+          credentials: "same-origin",
         });
-      } else {
-        throw new Error(typeof data.error === "string" ? data.error : "Upload failed");
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        const raw = await res.text();
+
+        if (
+          res.status === 413 &&
+          !raw.trimStart().startsWith("{") &&
+          /entity too large|payload too large/i.test(raw)
+        ) {
+          throw new Error(
+            "This deployment’s host limits upload size (~4–5 MB on Vercel). Use a smaller file, export text as .md/.txt, or run the app self-hosted (see MAX_UPLOAD_BYTES).",
+          );
+        }
+
+        let data: {
+          success?: boolean;
+          error?: string;
+          details?: string;
+          file?: SourceFile;
+        } = {};
+        try {
+          data = raw ? (JSON.parse(raw) as typeof data) : {};
+        } catch {
+          throw new Error(
+            raw.trim().startsWith("<")
+              ? `Upload failed (${res.status}): server returned HTML instead of JSON`
+              : `Upload failed (${res.status}): ${raw.slice(0, 200)}`,
+          );
+        }
+
+        if (!res.ok) {
+          const msg =
+            typeof data.error === "string"
+              ? data.error
+              : `Upload failed (${res.status})`;
+          throw new Error(data.details ? `${msg}: ${data.details}` : msg);
+        }
+
+        if (data.success && data.file) {
+          setSourceFile(data.file);
+          toast({
+            title: "File uploaded successfully!",
+            description: `${data.file.filename} - ${data.file.totalQuestions} questions detected across ${data.file.chapters.length} chapters.`,
+          });
+        } else {
+          throw new Error(typeof data.error === "string" ? data.error : "Upload failed");
+        }
+      } catch (error) {
+        toast({
+          title: "Upload failed",
+          description: error instanceof Error ? error.message : "Unknown error",
+          variant: "destructive",
+        });
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
       }
-    } catch (error) {
-      toast({ 
-        title: "Upload failed", 
-        description: error instanceof Error ? error.message : "Unknown error", 
-        variant: "destructive" 
-      });
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, []);
+    },
+    [maxUploadBytes],
+  );
 
   const handleDeleteFile = useCallback(async () => {
     if (!confirm("Are you sure you want to delete this file? This will also reset your generation progress.")) return;
@@ -264,6 +297,11 @@ export default function UploadPage() {
                     <p className="text-sm text-muted-foreground mt-1">
                       PDF (as extracted text), Markdown, or Text files
                     </p>
+                    {maxUploadBytes != null ? (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Max file size: {mbFromBytes(maxUploadBytes)} MB (host limit)
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex gap-2 mt-4">
                     <Badge variant="secondary">.md</Badge>

@@ -129,8 +129,10 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
+    const limits = { maxUploadBytes: MAX_UPLOAD_BYTES };
+
     if (!sourceFile) {
-      return NextResponse.json({ file: null });
+      return NextResponse.json({ file: null, limits });
     }
 
     return NextResponse.json({
@@ -143,6 +145,7 @@ export async function GET(request: NextRequest) {
         processed: sourceFile.processed,
         createdAt: sourceFile.createdAt,
       },
+      limits,
     });
   } catch (error) {
     return serverErrorResponse("Failed to get file info", error);
