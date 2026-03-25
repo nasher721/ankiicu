@@ -50,7 +50,14 @@ export default function UploadPage() {
         window.location.href = "/login";
         return;
       }
-      const data = await res.json();
+      const raw = await res.text();
+      let data: { file?: SourceFile | null };
+      try {
+        data = raw ? (JSON.parse(raw) as { file?: SourceFile | null }) : { file: null };
+      } catch {
+        console.error("Non-JSON /api/upload response:", raw.slice(0, 300));
+        return;
+      }
       if (data.file) {
         setSourceFile(data.file);
       }
@@ -83,12 +90,22 @@ export default function UploadPage() {
         window.location.href = "/login";
         return;
       }
-      const data = (await res.json().catch(() => ({}))) as {
+      const raw = await res.text();
+      let data: {
         success?: boolean;
         error?: string;
         details?: string;
         file?: SourceFile;
-      };
+      } = {};
+      try {
+        data = raw ? (JSON.parse(raw) as typeof data) : {};
+      } catch {
+        throw new Error(
+          raw.trim().startsWith("<")
+            ? `Upload failed (${res.status}): server returned HTML instead of JSON`
+            : `Upload failed (${res.status}): ${raw.slice(0, 200)}`,
+        );
+      }
 
       if (!res.ok) {
         const msg =

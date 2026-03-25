@@ -7,6 +7,8 @@ import { detectChapters } from "@/lib/chapters";
 import { apiAuthOr401 } from "@/lib/api-auth";
 import { bytesToUploadText, isContentWithinByteLimit } from "@/lib/upload-extract";
 
+export const runtime = "nodejs";
+
 // POST - Upload a file (binary PDF, or text / markdown)
 export async function POST(request: NextRequest) {
   try {

@@ -1,5 +1,3 @@
-import { PDFParse } from "pdf-parse";
-
 function isBinaryPdf(bytes: Uint8Array): boolean {
   if (bytes.length < 5) return false;
   const head = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
@@ -28,6 +26,11 @@ export async function bytesToUploadText(buf: ArrayBuffer, filename: string): Pro
   const isPdf = isBinaryPdf(bytes);
 
   if (isPdf) {
+    // Dynamic import avoids Turbopack/webpack resolving a worse entry and keeps pdfjs in Node.
+    const { PDFParse } = await import("pdf-parse");
+    if (typeof PDFParse !== "function") {
+      throw new Error("pdf-parse PDFParse export is unavailable (check serverExternalPackages)");
+    }
     const data = new Uint8Array(bytes); // copy; pdf-parse may transfer array to worker
     const parser = new PDFParse({ data });
     try {
