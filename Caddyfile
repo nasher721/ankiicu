@@ -13,6 +13,16 @@
 	}
 
 	handle {
+		header {
+			# HTTPS enforcement (only effective when Caddy terminates TLS)
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
+			# Content Security Policy — 'unsafe-inline'/'unsafe-eval' required by Next.js App Router
+			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none';"
+			# Redundant with CSP frame-ancestors, kept for older browsers
+			X-Frame-Options "DENY"
+			X-Content-Type-Options "nosniff"
+			Referrer-Policy "strict-origin-when-cross-origin"
+		}
 		reverse_proxy localhost:3000 {
 			header_up Host {host}
 			header_up X-Forwarded-For {remote_host}
