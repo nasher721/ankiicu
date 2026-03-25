@@ -24,7 +24,11 @@ export async function POST(request: NextRequest) {
 
     const filename = file.name;
     const fileType = filename.endsWith(".md") ? "md" : filename.endsWith(".pdf") ? "pdf" : "txt";
-    const content = await file.text();
+    const rawContent = await file.text();
+    
+    // PostgreSQL strict text encoding forbids null bytes (\0, \x00).
+    // Exported PDF text often retains hidden null bytes, making Prisma/Postgres crash.
+    const content = rawContent.replace(/\0/g, "");
 
     if (!content.trim()) {
       return NextResponse.json({ error: "Empty content" }, { status: 400 });
