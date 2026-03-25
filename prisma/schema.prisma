@@ -8,8 +8,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Pooled URL at runtime (Neon/Vercel: DATABASE_URL). Migrations use directUrl.
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model User {
@@ -80,7 +82,7 @@ model GenerationProgress {
   status                String   @default("idle") // idle, running, paused, completed
   batchSize             Int      @default(5)
   cardType              String   @default("cloze")
-  extras                String   @default("[]")
+  extras                String   @default("[\"explanation\",\"mnemonic\",\"clinical\",\"resources\",\"differential\",\"pitfalls\"]")
   /// JSON array of chapter ids to include in generate-all; null = all chapters
   includedChapterIds    String?
   lastError             String?

@@ -31,6 +31,8 @@ const openAiApiKey = process.env.OPENAI_API_KEY ?? "";
 // Embedded Postgres used by `node scripts/dev-local.mjs`.
 const defaultEmbeddedDbUrl = "postgresql://postgres:postgres@127.0.0.1:5433/ankiicu";
 process.env.DATABASE_URL = process.env.DATABASE_URL ?? defaultEmbeddedDbUrl;
+process.env.DATABASE_URL_UNPOOLED =
+  process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
 
 async function take(page, filename) {
   await page.screenshot({ path: path.join(screenshotDir, filename), fullPage: true });

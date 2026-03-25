@@ -26,7 +26,11 @@ const pg = new EmbeddedPostgres({
 });
 
 const dbUrl = `postgresql://postgres:postgres@127.0.0.1:${PORT}/ankiicu`;
-const dbEnv = { ...process.env, DATABASE_URL: dbUrl, DIRECT_URL: dbUrl };
+const dbEnv = {
+  ...process.env,
+  DATABASE_URL: dbUrl,
+  DATABASE_URL_UNPOOLED: dbUrl,
+};
 
 function versionFile() {
   return path.join(dataDir, "PG_VERSION");

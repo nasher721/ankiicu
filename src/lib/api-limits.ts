@@ -13,6 +13,9 @@ export const MAX_CARDS_PER_REQUEST = 500;
 export const DEFAULT_LIST_LIMIT = 2000;
 export const MAX_LIST_LIMIT = 10000;
 
+/** Chunk size when loading every card for export (avoids Prisma take caps). */
+export const EXPORT_FETCH_BATCH = 2000;
+
 /**
  * Vercel serverless request bodies are capped (~4.5 MB including multipart framing).
  * Use a conservative file cap so the request stays under the platform limit.

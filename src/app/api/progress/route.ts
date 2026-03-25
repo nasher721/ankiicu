@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { clampInt, MAX_BATCH_SIZE, MIN_BATCH_SIZE } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
-import { migrateLegacyGenerationExtraIds, parseProgressExtras } from "@/lib/generation-extras";
+import { extrasFromStoredProgress, migrateLegacyGenerationExtraIds } from "@/lib/generation-extras";
 import {
   resolveIncludedChapterIds,
   sumQuestionTargetForIds,
@@ -35,7 +35,7 @@ export async function GET() {
     return NextResponse.json({
       progress: {
         ...progress,
-        extras: parseProgressExtras(progress.extras, []),
+        extras: extrasFromStoredProgress(progress.extras),
         includedChapterIds:
           progress.includedChapterIds === null || progress.includedChapterIds === ""
             ? null
@@ -129,7 +129,7 @@ export async function PUT(request: NextRequest) {
       success: true,
       progress: {
         ...finalProgress,
-        extras: parseProgressExtras(finalProgress.extras, []),
+        extras: extrasFromStoredProgress(finalProgress.extras),
         includedChapterIds:
           finalProgress.includedChapterIds === null ||
           finalProgress.includedChapterIds === ""

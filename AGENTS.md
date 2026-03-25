@@ -92,15 +92,19 @@ AnkiICU/
 
 ### Environment Variables
 
-Create `.env` file (see `.env.example`):
+Create `.env` file (see `.env.example`). Prisma expects **both** `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (same value for non-pooled local Postgres; Neon on Vercel sets both automatically).
 
 ```bash
-# Option 1: Docker Compose (npm run db:up) — port 5432
+# Docker Compose (npm run db:up) — port 5432
 DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/ankiicu"
+DATABASE_URL_UNPOOLED="postgresql://postgres:postgres@127.0.0.1:5432/ankiicu"
 
-# Option 2: Embedded Postgres (npm run dev:local) — port 5433
+# Embedded Postgres (npm run dev:local) — port 5433
 # DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5433/ankiicu"
+# DATABASE_URL_UNPOOLED="postgresql://postgres:postgres@127.0.0.1:5433/ankiicu"
 ```
+
+**Vercel (Neon Postgres marketplace):** Install [Neon](https://vercel.com/marketplace/neon), connect the project, and confirm `DATABASE_URL` + `DATABASE_URL_UNPOOLED` are present. Production builds run `prisma migrate deploy`, which applies all migrations (tables required for upload, `GenerationProgress`, and `AnkiCard` generation).
 
 ### Development Commands
 
@@ -259,7 +263,7 @@ No formal test suite is configured. Testing is done manually via:
 
 ### Common Issues
 
-1. **Database connection errors**: Verify `DATABASE_URL` env var and PostgreSQL is running
+1. **Database connection errors**: Verify `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (see `.env.example`) and that PostgreSQL is running
 2. **Prisma client errors**: Run `bun run db:generate` after schema changes
 3. **Embedded Postgres issues**: Delete `.embedded-postgres/` directory to reset
 4. **Build failures**: Ensure `bun` is installed and in PATH

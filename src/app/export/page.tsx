@@ -65,6 +65,7 @@ const EXPORT_PRESETS: ExportPreset[] = [
 
 export default function ExportPage() {
   const [cards, setCards] = useState<any[]>([]);
+  const [deckTotal, setDeckTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedPreset, setSelectedPreset] = useState("all");
   const [exportFormat, setExportFormat] = useState<"json" | "csv" | "apkg">("json");
@@ -85,6 +86,7 @@ export default function ExportPage() {
       }
       const data = await res.json();
       setCards(data.cards || []);
+      setDeckTotal(typeof data.total === "number" ? data.total : (data.cards || []).length);
     } catch (error) {
       console.error("Failed to fetch cards:", error);
     } finally {
@@ -97,7 +99,7 @@ export default function ExportPage() {
   }, [fetchCards]);
 
   const handleExport = async () => {
-    if (cards.length === 0) {
+    if (deckTotal === 0) {
       toast({ title: "No cards to export", variant: "destructive" });
       return;
     }
@@ -121,8 +123,12 @@ export default function ExportPage() {
         window.location.href = "/login";
         return;
       }
+      const exported =
+        Number(res.headers.get("X-Card-Count")) ||
+        deckTotal;
+
       const blob = await res.blob();
-      
+
       const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
@@ -132,9 +138,9 @@ export default function ExportPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(downloadUrl);
 
-      toast({ 
-        title: "Export complete!", 
-        description: `${cards.length} cards exported as ${exportFormat.toUpperCase()}` 
+      toast({
+        title: "Export complete!",
+        description: `${exported} cards exported as ${exportFormat.toUpperCase()}`,
       });
     } catch (error) {
       toast({ title: "Export failed", variant: "destructive" });
@@ -177,7 +183,7 @@ export default function ExportPage() {
         </p>
       </div>
 
-      {cards.length === 0 ? (
+      {deckTotal === 0 ? (
         <Card className="border-dashed">
           <CardContent className="p-12 text-center">
             <div className="flex flex-col items-center gap-4">
@@ -202,7 +208,7 @@ export default function ExportPage() {
           <div className="grid gap-4 md:grid-cols-4">
             <StatCard
               title="Total Cards"
-              value={cards.length}
+              value={deckTotal}
               icon={Layers}
             />
             <StatCard
@@ -379,8 +385,14 @@ export default function ExportPage() {
               </div>
               <div className="flex items-center justify-between py-2 border-b">
                 <span className="text-muted-foreground">Cards to Export</span>
-                <span className="font-medium">{cards.length}</span>
+                <span className="font-medium">{deckTotal}</span>
               </div>
+              {cards.length < deckTotal && (
+                <p className="text-xs text-muted-foreground">
+                  Breakdown below is from the first {cards.length} cards loaded in this page; the file includes all{" "}
+                  {deckTotal}.
+                </p>
+              )}
               <div className="flex items-center justify-between py-2 border-b">
                 <span className="text-muted-foreground">Chapters</span>
                 <span className="font-medium">{chapters.length}</span>
@@ -415,13 +427,13 @@ export default function ExportPage() {
             <Button 
               size="lg" 
               onClick={handleExport}
-              disabled={exporting || cards.length === 0 || exportFormat === "apkg"}
+              disabled={exporting || deckTotal === 0 || exportFormat === "apkg"}
               className="min-w-[200px]"
             >
               {exporting ? (
                 <><Clock className="h-5 w-5 mr-2 animate-spin" /> Exporting...</>
               ) : (
-                <><Download className="h-5 w-5 mr-2" /> Export {cards.length} Cards</>
+                <><Download className="h-5 w-5 mr-2" /> Export {deckTotal} Cards</>
               )}
             </Button>
           </div>

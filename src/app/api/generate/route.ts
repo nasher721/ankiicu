@@ -9,7 +9,7 @@ import {
 } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
-import { migrateLegacyGenerationExtraIds, parseProgressExtras } from "@/lib/generation-extras";
+import { resolveExtrasForGeneration, extrasFromStoredProgress } from "@/lib/generation-extras";
 import { resolveIncludedChapterIds, type DetectedChapter } from "@/lib/chapters";
 import type { AnkiCard } from "@prisma/client";
 
@@ -30,9 +30,7 @@ export async function POST(request: NextRequest) {
     const sourceFile = await db.sourceFile.findFirst({ orderBy: { createdAt: "desc" } });
 
     const cardType = overrideCardType || progress?.cardType || "cloze";
-    const extras = migrateLegacyGenerationExtraIds(
-      overrideExtras ?? safeJsonArray(progress?.extras, ["explanation"]),
-    );
+    const extras = resolveExtrasForGeneration(overrideExtras ?? null, progress?.extras);
     const batchSize = clampInt(
       progress?.batchSize ?? 5,
       MIN_BATCH_SIZE,
@@ -311,7 +309,7 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
       });
     }
 
-    const responseExtras = progress ? parseProgressExtras(progress.extras, []) : [];
+    const responseExtras = progress ? extrasFromStoredProgress(progress.extras) : [];
 
     return NextResponse.json({
       success: true,

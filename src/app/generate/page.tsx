@@ -34,6 +34,7 @@ import {
   Activity
 } from "lucide-react";
 import Link from "next/link";
+import { ALL_GENERATION_EXTRA_IDS } from "@/lib/generation-extras";
 
 interface SourceChapter {
   id: number;
@@ -96,7 +97,7 @@ export default function GeneratePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSequentialRunning, setIsSequentialRunning] = useState(false);
   const [cardType, setCardType] = useState("cloze");
-  const [extras, setExtras] = useState<string[]>(["explanation"]);
+  const [extras, setExtras] = useState<string[]>(() => [...ALL_GENERATION_EXTRA_IDS]);
   const [batchSize, setBatchSize] = useState(5);
   const [autoContinue, setAutoContinue] = useState(true);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([]);
@@ -151,7 +152,9 @@ export default function GeneratePage() {
 
       if (prog) {
         setCardType(prog.cardType || "cloze");
-        setExtras(prog.extras || ["explanation"]);
+        setExtras(
+          prog.extras && prog.extras.length > 0 ? prog.extras : [...ALL_GENERATION_EXTRA_IDS],
+        );
         setBatchSize(prog.batchSize || 5);
         setIsSequentialRunning(prog.status === "running");
       }

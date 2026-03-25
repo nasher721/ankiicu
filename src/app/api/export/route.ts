@@ -1,8 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { clampInt, MAX_LIST_LIMIT } from "@/lib/api-limits";
+import { clampInt, EXPORT_FETCH_BATCH, MAX_LIST_LIMIT } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
+import type { AnkiCard } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+
+async function loadCardsForExport(
+  where: Prisma.AnkiCardWhereInput,
+  limitParam: string | null,
+  offsetParam: string | null,
+): Promise<AnkiCard[]> {
+  if (limitParam != null && limitParam !== "") {
+    const limit = clampInt(limitParam, 1, MAX_LIST_LIMIT, MAX_LIST_LIMIT);
+    const offset = Math.max(0, clampInt(offsetParam, 0, MAX_LIST_LIMIT * 100, 0));
+    return db.ankiCard.findMany({
+      where,
+      orderBy: { createdAt: "asc" },
+      take: limit,
+      skip: offset,
+    });
+  }
+
+  const out: AnkiCard[] = [];
+  let skip = 0;
+  for (;;) {
+    const batch = await db.ankiCard.findMany({
+      where,
+      orderBy: { createdAt: "asc" },
+      take: EXPORT_FETCH_BATCH,
+      skip,
+    });
+    out.push(...batch);
+    if (batch.length < EXPORT_FETCH_BATCH) break;
+    skip += EXPORT_FETCH_BATCH;
+  }
+  return out;
+}
 
 // GET - Export cards as JSON or CSV
 export async function GET(request: NextRequest) {
@@ -11,23 +45,13 @@ export async function GET(request: NextRequest) {
     const format = searchParams.get("format") || "json";
     const cardType = searchParams.get("cardType");
 
-    // Default to max cap so exports include the full deck (up to MAX_LIST_LIMIT rows).
-    const limit = clampInt(
-      searchParams.get("limit"),
-      1,
-      MAX_LIST_LIMIT,
-      MAX_LIST_LIMIT,
-    );
-    const offset = Math.max(0, clampInt(searchParams.get("offset"), 0, MAX_LIST_LIMIT * 100, 0));
-
     const whereClause = cardType ? { ankiType: cardType } : {};
 
-    const cards = await db.ankiCard.findMany({
-      where: whereClause,
-      orderBy: { createdAt: "asc" },
-      take: limit,
-      skip: offset,
-    });
+    const cards = await loadCardsForExport(
+      whereClause,
+      searchParams.get("limit"),
+      searchParams.get("offset"),
+    );
 
     if (format === "csv") {
       const headers = [
@@ -81,6 +105,7 @@ export async function GET(request: NextRequest) {
         headers: {
           "Content-Type": "text/csv",
           "Content-Disposition": "attachment; filename=neurocritical_care_anki.csv",
+          "X-Card-Count": String(cards.length),
         },
       });
     }
@@ -115,6 +140,7 @@ export async function GET(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         "Content-Disposition": "attachment; filename=neurocritical_care_anki.json",
+        "X-Card-Count": String(cards.length),
       },
     });
   } catch (error) {
