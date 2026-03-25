@@ -26,7 +26,7 @@ const sourceFile = path.join(
 
 const baseUrl = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const screenshotDir = path.join(root, "e2e-screenshots");
-const zAiApiKey = process.env.Z_AI_API_KEY ?? "";
+const openAiApiKey = process.env.OPENAI_API_KEY ?? "";
 
 // Embedded Postgres used by `node scripts/dev-local.mjs`.
 const defaultEmbeddedDbUrl = "postgresql://postgres:postgres@127.0.0.1:5433/ankiicu";
@@ -44,9 +44,9 @@ async function prismaWipe(prisma) {
 }
 
 async function runTest() {
-  if (!zAiApiKey) {
+  if (!openAiApiKey) {
     throw new Error(
-      "Missing Z_AI_API_KEY. E2E generation requires a real key (401 if absent).",
+      "Missing OPENAI_API_KEY. E2E generation requires a real key (401 if absent).",
     );
   }
 
@@ -87,8 +87,8 @@ async function runTest() {
 
     // Avoid the API key modal by seeding the hook's localStorage key.
     context.addInitScript((key) => {
-      localStorage.setItem("zai_api_key", key);
-    }, zAiApiKey);
+      localStorage.setItem("openai_api_key", key);
+    }, openAiApiKey);
 
     const page = await context.newPage();
     // Generous timeouts — machine may be under memory pressure.
@@ -164,7 +164,7 @@ async function runTest() {
     const apiKeyInput = page.locator("#apiKey");
     if (await apiKeyInput.isVisible().catch(() => false)) {
       console.log("API key modal detected; saving key...");
-      await apiKeyInput.fill(zAiApiKey);
+      await apiKeyInput.fill(openAiApiKey);
       await page.getByRole("button", { name: /Save & Continue/i }).click();
     }
 

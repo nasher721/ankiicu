@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 
-const STORAGE_KEY = "zai_api_key";
+const STORAGE_KEY = "openai_api_key";
+/** Legacy key from Z.ai / GLM — migrated once on read */
+const LEGACY_STORAGE_KEY = "zai_api_key";
 
 export function useApiKey() {
   const [key, setKeyState] = useState<string | null>(null);
@@ -9,7 +11,15 @@ export function useApiKey() {
   useEffect(() => {
     // Read from localStorage only after component mounts (client-side)
     try {
-      const storedKey = localStorage.getItem(STORAGE_KEY);
+      let storedKey = localStorage.getItem(STORAGE_KEY);
+      if (!storedKey) {
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (legacy) {
+          localStorage.setItem(STORAGE_KEY, legacy);
+          localStorage.removeItem(LEGACY_STORAGE_KEY);
+          storedKey = legacy;
+        }
+      }
       if (storedKey) {
         setKeyState(storedKey);
       }

@@ -10,21 +10,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useApiKey } from "@/hooks/use-api-key";
 
 interface ApiKeyModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Must be the same setter as the parent `useApiKey()` so React state stays in sync (localStorage alone does not update other hook instances in the same tab). */
+  setKey: (key: string) => void;
   onSave?: () => void;
 }
 
-export function ApiKeyModal({ isOpen, onOpenChange, onSave }: ApiKeyModalProps) {
-  const { setKey } = useApiKey();
+export function ApiKeyModal({ isOpen, onOpenChange, setKey, onSave }: ApiKeyModalProps) {
   const [inputValue, setInputValue] = useState("");
 
   const handleSave = () => {
     if (inputValue.trim()) {
-      setKey(inputValue.trim());
+      const trimmed = inputValue.trim();
+      setKey(trimmed);
       setInputValue("");
       onOpenChange(false);
       onSave?.();
@@ -37,7 +38,16 @@ export function ApiKeyModal({ isOpen, onOpenChange, onSave }: ApiKeyModalProps) 
         <DialogHeader>
           <DialogTitle>Enter your AI API Key</DialogTitle>
           <DialogDescription>
-            You need a Z.ai (GLM) API key to generate flashcards. This key is stored securely in your browser's local storage and is never saved to our database.
+            Add your OpenAI API key to generate flashcards. Get one at{" "}
+            <a
+              href="https://platform.openai.com/api-keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2"
+            >
+              platform.openai.com/api-keys
+            </a>
+            . The key stays in your browser (local storage only) and is not stored in our database.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
@@ -46,7 +56,8 @@ export function ApiKeyModal({ isOpen, onOpenChange, onSave }: ApiKeyModalProps) 
             <Input
               id="apiKey"
               type="password"
-              placeholder="Enter API key"
+              placeholder="sk-..."
+              autoComplete="off"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => {

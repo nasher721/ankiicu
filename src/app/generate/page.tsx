@@ -80,7 +80,7 @@ const EXTRAS = [
 ];
 
 export default function GeneratePage() {
-  const { key, isReady, clearKey } = useApiKey();
+  const { key, isReady, clearKey, setKey } = useApiKey();
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<"single" | "sequential" | null>(null);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
@@ -834,6 +834,7 @@ export default function GeneratePage() {
       </div>
       <ApiKeyModal
         isOpen={isKeyModalOpen}
+        setKey={setKey}
         onOpenChange={(open) => {
           setIsKeyModalOpen(open);
           if (!open) setPendingAction(null);

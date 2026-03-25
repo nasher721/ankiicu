@@ -11,7 +11,6 @@ import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
 import { resolveIncludedChapterIds, type DetectedChapter } from "@/lib/chapters";
 import type { AnkiCard } from "@prisma/client";
-import ZAI from "z-ai-web-dev-sdk";
 
 // POST - Generate cards (single batch or continue sequence)
 export async function POST(request: NextRequest) {
@@ -136,7 +135,7 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
     let apiKey = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
     
     if (!apiKey) {
-      apiKey = process.env.Z_AI_API_KEY || null;
+      apiKey = process.env.OPENAI_API_KEY || null;
     }
 
     if (!apiKey) {
@@ -146,47 +145,16 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
       );
     }
 
-    const baseUrl = process.env.Z_AI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4";
-    const model = process.env.Z_AI_MODEL || "glm-5";
-    const isZhipu = baseUrl.includes("bigmodel.cn");
+    const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-    let responseContent: string | null;
-
-    if (!isZhipu) {
-      // Generic OpenAI-compatible path: use fetch directly to avoid SDK-injected
-      // ZhipuAI-specific fields (e.g. "thinking") that other providers reject.
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: buildSystemPrompt(cardType, extras) },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.7,
-          max_tokens: 8000,
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`API request failed with status ${res.status}: ${errText}`);
-      }
-      const data = await res.json();
-      responseContent = data.choices?.[0]?.message?.content ?? null;
-    } else {
-      let zai;
-      try {
-        zai = await ZAI.create();
-        (zai as any).config.apiKey = apiKey;
-        (zai as any).config.baseUrl = baseUrl;
-      } catch (e) {
-        zai = new (ZAI as any)({ baseUrl, apiKey });
-      }
-      const completion = await zai.chat.completions.create({
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
         model,
         messages: [
           { role: "system", content: buildSystemPrompt(cardType, extras) },
@@ -194,9 +162,14 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
         ],
         temperature: 0.7,
         max_tokens: 8000,
-      });
-      responseContent = completion.choices[0]?.message?.content ?? null;
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`API request failed with status ${res.status}: ${errText}`);
     }
+    const data = await res.json();
+    const responseContent: string | null = data.choices?.[0]?.message?.content ?? null;
 
     if (!responseContent) {
       throw new Error("No response from AI");
