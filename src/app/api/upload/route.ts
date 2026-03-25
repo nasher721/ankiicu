@@ -141,14 +141,24 @@ export async function POST(request: NextRequest) {
           "Database operation timed out. Try a smaller file or a database plan with higher timeouts.",
         P1017:
           "Database server closed the connection. Retry; with serverless Postgres use a pooler URL intended for Prisma.",
+        P2022:
+          "The database schema is out of date (a column Prisma expects is missing). Run `npx prisma migrate deploy` against this DATABASE_URL, or redeploy so the build runs migrations.",
         P2024: "Connection pool timed out. Retry or increase pool size / use Neon's pooled connection string.",
         P2034: "Write conflict or deadlock. Retry the upload.",
       };
+      const p2022Column =
+        error.code === "P2022" && error.meta && typeof (error.meta as { column?: unknown }).column === "string"
+          ? String((error.meta as { column: string }).column)
+          : null;
       return NextResponse.json(
         {
           error: hints[error.code] ?? "Could not save the file to the database.",
           code: error.code,
-          ...(process.env.NODE_ENV !== "production" ? { details: error.message } : {}),
+          ...(process.env.NODE_ENV !== "production"
+            ? { details: error.message }
+            : p2022Column
+              ? { details: `Missing column: ${p2022Column}` }
+              : {}),
         },
         { status: 500 },
       );
