@@ -16,6 +16,8 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
+// Exclude /api/upload: middleware buffering breaks large multipart bodies (see vercel/next.js#39262).
+// Upload route verifies APP_API_SECRET itself via apiAuthOr401.
 export const config = {
-  matcher: "/api/:path*",
+  matcher: ["/api/((?!upload$).*)"],
 };

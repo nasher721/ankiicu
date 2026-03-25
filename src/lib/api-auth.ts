@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const COOKIE_NAME = "ankiicu_api_auth";
@@ -45,6 +46,16 @@ export async function isRequestAuthorized(request: NextRequest, secret: string):
   if (bearer?.startsWith("Bearer ") && bearer.slice(7) === secret) return true;
   const cookie = request.cookies.get(COOKIE_NAME)?.value;
   return verifyApiCookie(cookie, secret);
+}
+
+/** When APP_API_SECRET is set, require Bearer or auth cookie; otherwise no-op. */
+export async function apiAuthOr401(request: NextRequest): Promise<NextResponse | null> {
+  const secret = process.env.APP_API_SECRET;
+  if (!secret) return null;
+  if (!(await isRequestAuthorized(request, secret))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return null;
 }
 
 export async function timingSafeEqualString(a: string, b: string): Promise<boolean> {

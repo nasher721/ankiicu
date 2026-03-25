@@ -4,10 +4,15 @@ import { MAX_UPLOAD_BYTES } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
 import { detectChapters } from "@/lib/chapters";
+import { apiAuthOr401 } from "@/lib/api-auth";
+import { bytesToUploadText, isContentWithinByteLimit } from "@/lib/upload-extract";
 
-// POST - Upload a file (PDF content as text or markdown)
+// POST - Upload a file (binary PDF, or text / markdown)
 export async function POST(request: NextRequest) {
   try {
+    const auth = await apiAuthOr401(request);
+    if (auth) return auth;
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
 
@@ -23,18 +28,32 @@ export async function POST(request: NextRequest) {
     }
 
     const filename = file.name || "unknown.txt";
-    const fileType = filename.endsWith(".md") ? "md" : filename.endsWith(".pdf") ? "pdf" : "txt";
-    const rawContent = await file.text();
-    
-    // PostgreSQL strict text encoding forbids null bytes (\0, \x00).
-    // Exported PDF text often retains hidden null bytes, making Prisma/Postgres crash.
-    const content = rawContent.replace(/\0/g, "");
-
-    if (!content.trim()) {
-      return NextResponse.json({ error: "Empty content" }, { status: 400 });
+    const buf = await file.arrayBuffer();
+    let content: string;
+    let fileType: "pdf" | "md" | "txt";
+    try {
+      const extracted = await bytesToUploadText(buf, filename);
+      content = extracted.content;
+      fileType = extracted.fileType;
+    } catch (err) {
+      console.error("Upload decode/PDF extract failed", err);
+      return NextResponse.json(
+        {
+          error:
+            "Could not read this file. For PDFs, ensure the file is a standard (non-corrupt) PDF. You can also export extracted text as .md or .txt.",
+        },
+        { status: 400 },
+      );
     }
 
-    if (content.length > MAX_UPLOAD_BYTES) {
+    if (!content.trim()) {
+      return NextResponse.json(
+        { error: "Empty content after reading the file (PDF may be image-only or encrypted)." },
+        { status: 400 },
+      );
+    }
+
+    if (!isContentWithinByteLimit(content, MAX_UPLOAD_BYTES)) {
       return NextResponse.json(
         { error: `Decoded content too large (max ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB)` },
         { status: 413 },
@@ -99,8 +118,11 @@ export async function POST(request: NextRequest) {
 }
 
 // GET - Get current source file info
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = await apiAuthOr401(request);
+    if (auth) return auth;
+
     const sourceFile = await db.sourceFile.findFirst({
       orderBy: { createdAt: "desc" },
     });
@@ -126,8 +148,11 @@ export async function GET() {
 }
 
 // DELETE - Delete source file
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   try {
+    const auth = await apiAuthOr401(request);
+    if (auth) return auth;
+
     await db.sourceFile.deleteMany();
     await db.generationProgress.updateMany({
       data: {
@@ -148,4 +173,3 @@ export async function DELETE() {
     return serverErrorResponse("Failed to delete file", error);
   }
 }
-

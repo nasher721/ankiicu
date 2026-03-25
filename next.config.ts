@@ -21,6 +21,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(process.cwd()),
   ...(isVercel ? {} : { output: "standalone" }),
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist"],
   typescript: {
     ignoreBuildErrors: true,
   },

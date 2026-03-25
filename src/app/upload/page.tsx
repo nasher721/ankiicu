@@ -77,21 +77,35 @@ export default function UploadPage() {
       const res = await fetch("/api/upload", {
         method: "POST",
         body: formData,
+        credentials: "same-origin",
       });
       if (res.status === 401) {
         window.location.href = "/login";
         return;
       }
-      const data = await res.json();
-      
-      if (data.success) {
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        details?: string;
+        file?: SourceFile;
+      };
+
+      if (!res.ok) {
+        const msg =
+          typeof data.error === "string"
+            ? data.error
+            : `Upload failed (${res.status})`;
+        throw new Error(data.details ? `${msg}: ${data.details}` : msg);
+      }
+
+      if (data.success && data.file) {
         setSourceFile(data.file);
-        toast({ 
-          title: "File uploaded successfully!", 
-          description: `${data.file.filename} - ${data.file.totalQuestions} questions detected across ${data.file.chapters.length} chapters.` 
+        toast({
+          title: "File uploaded successfully!",
+          description: `${data.file.filename} - ${data.file.totalQuestions} questions detected across ${data.file.chapters.length} chapters.`,
         });
       } else {
-        throw new Error(data.error);
+        throw new Error(typeof data.error === "string" ? data.error : "Upload failed");
       }
     } catch (error) {
       toast({ 
