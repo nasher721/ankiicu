@@ -292,9 +292,12 @@ export default function UploadPage() {
               <div>
                 <h3 className="font-medium">Expected File Format</h3>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Your file should contain numbered chapters followed by questions. 
-                  The system will automatically detect chapters using patterns like &quot;1 Chapter Name&quot; 
-                  and questions using numbered lists.
+                  Chapters are detected from lines like{" "}
+                  <code className="text-xs bg-muted px-1 rounded">## 3. Acute Ischemic Stroke</code>,{" "}
+                  <code className="text-xs bg-muted px-1 rounded">3. Stroke</code>, or{" "}
+                  <code className="text-xs bg-muted px-1 rounded">Chapter 4: Monitoring</code>. Questions
+                  use numbered stems such as <code className="text-xs bg-muted px-1 rounded">1. A 45-year-old…</code>.
+                  After upload, open Generate to pick the current chapter and scope for batch runs.
                 </p>
               </div>
             </div>

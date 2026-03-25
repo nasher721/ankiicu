@@ -3,6 +3,11 @@ import { db } from "@/lib/db";
 import { clampInt, MAX_BATCH_SIZE, MIN_BATCH_SIZE } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
+import {
+  resolveIncludedChapterIds,
+  sumQuestionTargetForIds,
+  type DetectedChapter,
+} from "@/lib/chapters";
 
 // GET - Get current generation progress
 export async function GET() {
@@ -30,6 +35,10 @@ export async function GET() {
       progress: {
         ...progress,
         extras: safeJsonArray(progress.extras, []),
+        includedChapterIds:
+          progress.includedChapterIds === null || progress.includedChapterIds === ""
+            ? null
+            : safeJsonArray(progress.includedChapterIds, [] as number[]),
       },
       sourceFile: sourceFile
         ? {
@@ -50,7 +59,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { batchSize, cardType, extras, status } = body;
+    const { batchSize, cardType, extras, status, currentChapterId, includedChapterIds } = body;
 
     const updateData: Record<string, unknown> = {};
     if (batchSize !== undefined) {
@@ -59,6 +68,23 @@ export async function PUT(request: NextRequest) {
     if (cardType !== undefined) updateData.cardType = cardType;
     if (extras !== undefined) updateData.extras = JSON.stringify(extras);
     if (status !== undefined) updateData.status = status;
+
+    if (includedChapterIds !== undefined) {
+      if (includedChapterIds === null) {
+        updateData.includedChapterIds = null;
+      } else if (Array.isArray(includedChapterIds)) {
+        const ids = includedChapterIds
+          .map((n: unknown) => Number(n))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        updateData.includedChapterIds = JSON.stringify(ids);
+      }
+    }
+
+    let nextChapterId: number | undefined;
+    if (currentChapterId !== undefined) {
+      nextChapterId = clampInt(currentChapterId, 1, 99999, 1);
+      updateData.currentChapterId = nextChapterId;
+    }
 
     const progress = await db.generationProgress.upsert({
       where: { id: "main" },
@@ -69,7 +95,43 @@ export async function PUT(request: NextRequest) {
       update: updateData,
     });
 
-    return NextResponse.json({ success: true, progress });
+    const sourceFile = await db.sourceFile.findFirst({
+      orderBy: { createdAt: "desc" },
+    });
+    let finalProgress = progress;
+    const touchChapters = includedChapterIds !== undefined || currentChapterId !== undefined;
+
+    if (touchChapters && sourceFile?.chapters) {
+      const chs = safeJsonArray(sourceFile.chapters, []) as DetectedChapter[];
+      if (chs.length > 0) {
+        const resolvedIncluded = resolveIncludedChapterIds(chs, progress.includedChapterIds);
+        let cid = progress.currentChapterId;
+        if (!resolvedIncluded.includes(cid)) {
+          cid = resolvedIncluded[0] ?? chs[0]?.id ?? 1;
+        }
+        const targetSum = sumQuestionTargetForIds(chs, resolvedIncluded);
+        finalProgress = await db.generationProgress.update({
+          where: { id: "main" },
+          data: {
+            currentChapterId: cid,
+            totalQuestionsTarget: targetSum,
+          },
+        });
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      progress: {
+        ...finalProgress,
+        extras: safeJsonArray(finalProgress.extras, []),
+        includedChapterIds:
+          finalProgress.includedChapterIds === null ||
+          finalProgress.includedChapterIds === ""
+            ? null
+            : safeJsonArray(finalProgress.includedChapterIds, [] as number[]),
+      },
+    });
   } catch (error) {
     return serverErrorResponse("Failed to update progress", error);
   }
@@ -92,13 +154,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "reset") {
+      const sf = await db.sourceFile.findFirst({ orderBy: { createdAt: "desc" } });
+      const chs = sf ? (safeJsonArray(sf.chapters, []) as DetectedChapter[]) : [];
+      const firstId = chs[0]?.id ?? 1;
+      const totalQ = sf?.totalQuestions ?? 0;
+
       progress = await db.generationProgress.update({
         where: { id: "main" },
         data: {
           status: "idle",
-          currentChapterId: 1,
+          currentChapterId: firstId,
           currentQuestionNumber: 0,
           totalCardsGenerated: 0,
+          totalQuestionsTarget: totalQ,
+          includedChapterIds: null,
           lastError: null,
           startedAt: null,
           completedAt: null,

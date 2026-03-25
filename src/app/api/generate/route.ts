@@ -9,6 +9,7 @@ import {
 } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
+import { resolveIncludedChapterIds, type DetectedChapter } from "@/lib/chapters";
 import type { AnkiCard } from "@prisma/client";
 import ZAI from "z-ai-web-dev-sdk";
 
@@ -46,13 +47,7 @@ export async function POST(request: NextRequest) {
     );
 
     let content = "";
-    let chapters: Array<{
-      id: number;
-      label: string;
-      startIdx: number;
-      endIdx: number;
-      questionCount: number;
-    }> = [];
+    let chapters: DetectedChapter[] = [];
 
     if (sourceFile?.content) {
       content = sourceFile.content;
@@ -83,6 +78,11 @@ export async function POST(request: NextRequest) {
     } else if (chapterIds && chapterIds.length > 0) {
       targetChapters = chapterIds;
       effectiveQuestionCount = targetQuestionCount;
+    } else if (mode === "single") {
+      const fallbackId = chapters[0]?.id ?? 1;
+      targetChapters = [progress?.currentChapterId ?? fallbackId];
+      effectiveQuestionCount = targetQuestionCount;
+      isSequential = false;
     } else {
       return NextResponse.json({ error: "No chapters specified" }, { status: 400 });
     }
@@ -247,7 +247,10 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
     }
 
     if (updateProgress && isSequential) {
-      const currentChapter = chapters.find((ch) => ch.id === targetChapters[0]);
+      const includedIds = resolveIncludedChapterIds(chapters, progress?.includedChapterIds ?? null);
+      const orderedChapters = chapters.filter((ch) => includedIds.includes(ch.id));
+
+      const currentChapter = orderedChapters.find((ch) => ch.id === targetChapters[0]);
       const newQuestionNumber = (progress?.currentQuestionNumber || 0) + savedCards.length;
       const chapterComplete =
         currentChapter && newQuestionNumber >= (currentChapter.questionCount || 100);
@@ -256,9 +259,9 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
       let nextQuestionNumber = newQuestionNumber;
 
       if (chapterComplete) {
-        const currentIdx = chapters.findIndex((ch) => ch.id === targetChapters[0]);
-        if (currentIdx < chapters.length - 1) {
-          nextChapterId = chapters[currentIdx + 1].id;
+        const currentIdx = orderedChapters.findIndex((ch) => ch.id === targetChapters[0]);
+        if (currentIdx >= 0 && currentIdx < orderedChapters.length - 1) {
+          nextChapterId = orderedChapters[currentIdx + 1].id;
           nextQuestionNumber = 0;
         }
       }

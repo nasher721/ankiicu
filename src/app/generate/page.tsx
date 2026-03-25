@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { 
@@ -32,6 +33,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+interface SourceChapter {
+  id: number;
+  label: string;
+  questionCount?: number;
+}
+
 interface GenerationProgress {
   id: string;
   currentChapterId: number;
@@ -42,6 +49,7 @@ interface GenerationProgress {
   batchSize: number;
   cardType: string;
   extras: string[];
+  includedChapterIds: number[] | null;
   lastError: string | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -79,6 +87,10 @@ export default function GeneratePage() {
   const [autoContinue, setAutoContinue] = useState(true);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([]);
   const [hasSourceFile, setHasSourceFile] = useState(false);
+  const [sourceChapters, setSourceChapters] = useState<SourceChapter[]>([]);
+  const [includedChapterIds, setIncludedChapterIds] = useState<number[]>([]);
+  const chapterSelectionTouchedRef = useRef(false);
+  const lastSourceFileIdRef = useRef<string | null>(null);
   const sequentialIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch progress and check for source file
@@ -92,18 +104,37 @@ export default function GeneratePage() {
       const progressData = await progressRes.json();
       const uploadData = await uploadRes.json();
 
-      setProgress(progressData.progress);
+      const prog = progressData.progress as GenerationProgress | null;
+      setProgress(prog);
       setHasSourceFile(!!uploadData.file);
-      
-      if (progressData.progress) {
-        setCardType(progressData.progress.cardType || "cloze");
-        setExtras(progressData.progress.extras || ["explanation"]);
-        setBatchSize(progressData.progress.batchSize || 5);
-        
-        // Update sequential running state based on server status
-        if (progressData.progress.status === "running") {
-          setIsSequentialRunning(true);
+
+      const file = uploadData.file as { id?: string; chapters?: SourceChapter[] } | null;
+      if (file?.id !== lastSourceFileIdRef.current) {
+        lastSourceFileIdRef.current = file?.id ?? null;
+        chapterSelectionTouchedRef.current = false;
+      }
+
+      if (file?.chapters?.length) {
+        setSourceChapters(file.chapters);
+        if (!chapterSelectionTouchedRef.current) {
+          const inc = prog?.includedChapterIds;
+          const allIds = file.chapters.map((c) => c.id);
+          if (inc == null || !Array.isArray(inc) || inc.length === 0) {
+            setIncludedChapterIds(allIds);
+          } else {
+            const valid = inc.filter((id: number) => allIds.includes(id));
+            setIncludedChapterIds(valid.length > 0 ? valid : allIds);
+          }
         }
+      } else {
+        setSourceChapters([]);
+      }
+
+      if (prog) {
+        setCardType(prog.cardType || "cloze");
+        setExtras(prog.extras || ["explanation"]);
+        setBatchSize(prog.batchSize || 5);
+        setIsSequentialRunning(prog.status === "running");
       }
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -145,6 +176,71 @@ export default function GeneratePage() {
       body: JSON.stringify({ batchSize, cardType, extras }),
     });
   }, [batchSize, cardType, extras]);
+
+  const setCurrentChapter = useCallback(
+    async (chapterId: number) => {
+      try {
+        await fetch("/api/progress", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentChapterId: chapterId }),
+        });
+        toast({ title: "Current chapter updated" });
+        await fetchData();
+      } catch {
+        toast({ title: "Could not update chapter", variant: "destructive" });
+      }
+    },
+    [fetchData],
+  );
+
+  const toggleChapterIncluded = useCallback((id: number, checked: boolean) => {
+    chapterSelectionTouchedRef.current = true;
+    setIncludedChapterIds((prev) => {
+      if (checked) return prev.includes(id) ? prev : [...prev, id].sort((a, b) => a - b);
+      return prev.filter((x) => x !== id);
+    });
+  }, []);
+
+  const selectAllChapters = useCallback(() => {
+    chapterSelectionTouchedRef.current = true;
+    setIncludedChapterIds(sourceChapters.map((c) => c.id));
+  }, [sourceChapters]);
+
+  const clearChapterCheckboxes = useCallback(() => {
+    chapterSelectionTouchedRef.current = true;
+    setIncludedChapterIds([]);
+  }, []);
+
+  const applyChapterScope = useCallback(async () => {
+    if (sourceChapters.length === 0) return;
+    if (includedChapterIds.length === 0) {
+      toast({
+        title: "Select at least one chapter",
+        description: "Check the boxes for chapters you want in Generate All.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const allIds = sourceChapters.map((c) => c.id).sort((a, b) => a - b);
+    const sortedSel = [...includedChapterIds].sort((a, b) => a - b);
+    const isAll =
+      sortedSel.length === allIds.length && sortedSel.every((id, i) => id === allIds[i]);
+    try {
+      await fetch("/api/progress", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          includedChapterIds: isAll ? null : includedChapterIds,
+        }),
+      });
+      chapterSelectionTouchedRef.current = false;
+      toast({ title: "Chapter scope saved" });
+      await fetchData();
+    } catch {
+      toast({ title: "Could not save chapter scope", variant: "destructive" });
+    }
+  }, [sourceChapters, includedChapterIds, fetchData]);
 
   const generateSingleBatch = useCallback(async () => {
     if (!hasSourceFile) {
@@ -361,6 +457,89 @@ export default function GeneratePage() {
           </Badge>
         )}
       </div>
+
+      {sourceChapters.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <BookOpen className="h-5 w-5 text-primary" />
+              Chapters
+            </CardTitle>
+            <CardDescription>
+              Click a row to set the current chapter (used for Generate N). Use checkboxes and Apply scope
+              to limit which chapters Generate All runs through.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={selectAllChapters}
+                disabled={isSequentialRunning}
+              >
+                Select all
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={clearChapterCheckboxes}
+                disabled={isSequentialRunning}
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={applyChapterScope}
+                disabled={isSequentialRunning || isGenerating}
+              >
+                Apply scope
+              </Button>
+            </div>
+            <ScrollArea className="h-80 rounded-md border pr-2">
+              <div className="space-y-1 p-2">
+                {sourceChapters.map((ch) => {
+                  const isCurrent = progress?.currentChapterId === ch.id;
+                  const checked = includedChapterIds.includes(ch.id);
+                  return (
+                    <div
+                      key={ch.id}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg border p-3 transition-colors",
+                        isCurrent
+                          ? "border-primary bg-primary/5"
+                          : "border-transparent bg-secondary/40 hover:bg-secondary/70",
+                      )}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        disabled={isSequentialRunning}
+                        onCheckedChange={(v) => toggleChapterIncluded(ch.id, v === true)}
+                        aria-label={`Include chapter ${ch.id} in Generate All`}
+                      />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left disabled:opacity-50"
+                        onClick={() => void setCurrentChapter(ch.id)}
+                        disabled={isSequentialRunning}
+                      >
+                        <p className="truncate font-medium">{ch.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          ~{ch.questionCount ?? 0} questions detected · Click to set as current
+                        </p>
+                      </button>
+                      {isCurrent ? <Badge variant="secondary">Current</Badge> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left Column - Controls */}

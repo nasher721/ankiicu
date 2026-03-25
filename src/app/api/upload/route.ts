@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { MAX_UPLOAD_BYTES } from "@/lib/api-limits";
 import { serverErrorResponse } from "@/lib/api-errors";
 import { safeJsonArray } from "@/lib/json-safe";
+import { detectChapters } from "@/lib/chapters";
 
 // POST - Upload a file (PDF content as text or markdown)
 export async function POST(request: NextRequest) {
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
           currentQuestionNumber: 0,
           totalCardsGenerated: 0,
           totalQuestionsTarget: sf.totalQuestions,
+          includedChapterIds: null,
         },
         update: {
           sourceFileId: sf.id,
@@ -66,6 +68,7 @@ export async function POST(request: NextRequest) {
           currentQuestionNumber: 0,
           totalCardsGenerated: 0,
           totalQuestionsTarget: sf.totalQuestions,
+          includedChapterIds: null,
           lastError: null,
           startedAt: null,
           completedAt: null,
@@ -127,6 +130,7 @@ export async function DELETE() {
         currentQuestionNumber: 0,
         totalCardsGenerated: 0,
         totalQuestionsTarget: 0,
+        includedChapterIds: null,
         lastError: null,
         startedAt: null,
         completedAt: null,
@@ -138,75 +142,3 @@ export async function DELETE() {
   }
 }
 
-// Helper function to detect chapters
-function detectChapters(
-  content: string,
-): Array<{ id: number; label: string; startIdx: number; endIdx: number; questionCount: number }> {
-  const lines = content.split("\n");
-  const chapters: Array<{
-    id: number;
-    label: string;
-    startIdx: number;
-    endIdx: number;
-    questionCount: number;
-  }> = [];
-
-  let currentChapter: (typeof chapters)[number] | null = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-
-    const match = line.match(/^(\d{1,2})[.\s]+([A-Z][A-Za-z\s]{3,40})$/);
-
-    if (match) {
-      if (currentChapter) {
-        currentChapter.endIdx = i;
-        currentChapter.questionCount = countQuestionsInRange(
-          lines,
-          currentChapter.startIdx,
-          currentChapter.endIdx,
-        );
-        chapters.push(currentChapter);
-      }
-      currentChapter = {
-        id: parseInt(match[1]),
-        label: match[2].trim(),
-        startIdx: i,
-        endIdx: lines.length,
-        questionCount: 0,
-      };
-    }
-  }
-
-  if (currentChapter) {
-    currentChapter.endIdx = lines.length;
-    currentChapter.questionCount = countQuestionsInRange(
-      lines,
-      currentChapter.startIdx,
-      currentChapter.endIdx,
-    );
-    chapters.push(currentChapter);
-  }
-
-  if (chapters.length === 0) {
-    chapters.push({
-      id: 1,
-      label: "Content",
-      startIdx: 0,
-      endIdx: lines.length,
-      questionCount: countQuestionsInRange(lines, 0, lines.length),
-    });
-  }
-
-  return chapters;
-}
-
-function countQuestionsInRange(lines: string[], startIdx: number, endIdx: number): number {
-  let count = 0;
-  for (let i = startIdx; i < endIdx && i < lines.length; i++) {
-    if (lines[i].match(/^\d+\.\s+[A-Z]/)) {
-      count++;
-    }
-  }
-  return count;
-}
