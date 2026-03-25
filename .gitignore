@@ -51,6 +51,12 @@ test
 prompt
 
 server.log
+# e2e test artefacts
+e2e-screenshots/
+dev-server.log
+dev-server-err.log
+*.log
+start-server.bat
 # Skills directory
 /skills/
 .vercel

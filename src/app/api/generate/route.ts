@@ -146,27 +146,57 @@ Generate ${effectiveQuestionCount} cards now. Return ONLY valid JSON.`;
       );
     }
 
-    let zai;
-    try {
-      zai = await ZAI.create();
-      (zai as any).config.apiKey = apiKey;
-    } catch (e) {
-      zai = new (ZAI as any)({
-        baseUrl: process.env.Z_AI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4",
-        apiKey: apiKey,
-      });
-    }
-    const completion = await zai.chat.completions.create({
-      model: "glm-5",
-      messages: [
-        { role: "system", content: buildSystemPrompt(cardType, extras) },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 8000,
-    });
+    const baseUrl = process.env.Z_AI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4";
+    const model = process.env.Z_AI_MODEL || "glm-5";
+    const isZhipu = baseUrl.includes("bigmodel.cn");
 
-    const responseContent = completion.choices[0]?.message?.content;
+    let responseContent: string | null;
+
+    if (!isZhipu) {
+      // Generic OpenAI-compatible path: use fetch directly to avoid SDK-injected
+      // ZhipuAI-specific fields (e.g. "thinking") that other providers reject.
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: buildSystemPrompt(cardType, extras) },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 8000,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`API request failed with status ${res.status}: ${errText}`);
+      }
+      const data = await res.json();
+      responseContent = data.choices?.[0]?.message?.content ?? null;
+    } else {
+      let zai;
+      try {
+        zai = await ZAI.create();
+        (zai as any).config.apiKey = apiKey;
+        (zai as any).config.baseUrl = baseUrl;
+      } catch (e) {
+        zai = new (ZAI as any)({ baseUrl, apiKey });
+      }
+      const completion = await zai.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: buildSystemPrompt(cardType, extras) },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 8000,
+      });
+      responseContent = completion.choices[0]?.message?.content ?? null;
+    }
 
     if (!responseContent) {
       throw new Error("No response from AI");
