@@ -82,8 +82,11 @@ export async function POST(request: NextRequest) {
       file: {
         id: sourceFile.id,
         filename: sourceFile.filename,
+        fileType: sourceFile.fileType,
         chapters,
         totalQuestions: sourceFile.totalQuestions,
+        processed: sourceFile.processed,
+        createdAt: sourceFile.createdAt,
       },
     });
   } catch (error) {
